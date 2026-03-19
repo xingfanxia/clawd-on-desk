@@ -734,6 +734,12 @@ function startHttpServer() {
           const { state, svg, session_id, event } = data;
           if (STATE_SVGS[state]) {
             const sid = session_id || "default";
+            // mini-* states are internal — only allow via direct SVG override (test scripts)
+            if (state.startsWith("mini-") && !svg) {
+              res.writeHead(400);
+              res.end("mini states require svg override");
+              return;
+            }
             if (svg) {
               // Direct SVG override (test-demo.sh, manual curl) — bypass session logic
               // Sanitize: strip path separators to prevent directory traversal
@@ -934,7 +940,7 @@ function createWindow() {
   ipcMain.on("show-context-menu", showPetContextMenu);
 
   ipcMain.on("move-window-by", (event, dx, dy) => {
-    if (miniMode) return;
+    if (miniMode || miniTransitioning) return;
     const { x, y } = win.getBounds();
     const size = SIZES[currentSize];
     const clamped = clampToScreen(x + dx, y + dy, size.width, size.height);
@@ -959,7 +965,7 @@ function createWindow() {
   });
 
   ipcMain.on("drag-end", () => {
-    if (!miniMode) {
+    if (!miniMode && !miniTransitioning) {
       checkMiniModeSnap();
     }
   });
