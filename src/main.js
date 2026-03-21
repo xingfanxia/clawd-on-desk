@@ -1377,7 +1377,18 @@ if (!gotTheLock) {
     if (win) win.showInactive();
   });
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    createWindow();
+
+    // Auto-register Claude Code hooks on every launch (dedup-safe)
+    try {
+      const { registerHooks } = require("../hooks/install.js");
+      const { added } = registerHooks({ silent: true });
+      if (added > 0) console.log(`Clawd: auto-registered ${added} Claude Code hooks`);
+    } catch (err) {
+      console.warn("Clawd: failed to auto-register hooks:", err.message);
+    }
+  });
 
   app.on("before-quit", () => {
     isQuitting = true;
