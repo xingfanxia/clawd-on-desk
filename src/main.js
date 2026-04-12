@@ -715,6 +715,10 @@ const _menuCtx = {
   getActiveThemeId: () => activeTheme ? activeTheme._id : "clawd",
   ensureUserThemesDir: () => themeLoader.ensureUserThemesDir(),
   openSettingsWindow: () => openSettingsWindow(),
+  // Soul engine
+  get soulHealthy() { return _soul && _soul.healthy; },
+  onSoulObserve: () => { if (_soul) _soul.doObservation("user-click"); },
+  onOpenDiary: () => openDiaryViewer(),
 };
 const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
@@ -901,6 +905,171 @@ function openSettingsWindow() {
   });
   settingsWindow.on("closed", () => {
     settingsWindow = null;
+  });
+}
+
+// ── Diary viewer window ──
+let diaryWindow = null;
+
+function openDiaryViewer() {
+  if (diaryWindow && !diaryWindow.isDestroyed()) {
+    if (diaryWindow.isMinimized()) diaryWindow.restore();
+    diaryWindow.show();
+    diaryWindow.focus();
+    return;
+  }
+  diaryWindow = new BrowserWindow({
+    width: 480, height: 600,
+    minWidth: 360, minHeight: 400,
+    show: false, frame: true, transparent: false,
+    resizable: true, skipTaskbar: false, alwaysOnTop: false,
+    title: t("diaryTitle"),
+    backgroundColor: "#fffbf5",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-diary.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  diaryWindow.setMenuBarVisibility(false);
+  diaryWindow.loadFile(path.join(__dirname, "..", "soul", "diary-viewer.html"));
+  diaryWindow.once("ready-to-show", () => { diaryWindow.show(); diaryWindow.focus(); });
+  diaryWindow.on("closed", () => { diaryWindow = null; });
+}
+
+// ── Onboarding window ──
+let onboardingWindow = null;
+
+function openOnboarding() {
+  if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+    onboardingWindow.show();
+    onboardingWindow.focus();
+    return;
+  }
+  onboardingWindow = new BrowserWindow({
+    width: 480, height: 580,
+    show: false, frame: true, transparent: false,
+    resizable: false, minimizable: false,
+    skipTaskbar: false, alwaysOnTop: false,
+    title: t("onboardingTitle"),
+    backgroundColor: "#fafafa",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-onboarding.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  onboardingWindow.setMenuBarVisibility(false);
+  onboardingWindow.loadFile(path.join(__dirname, "..", "soul", "onboarding.html"));
+  onboardingWindow.once("ready-to-show", () => { onboardingWindow.show(); onboardingWindow.focus(); });
+  onboardingWindow.on("closed", () => { onboardingWindow = null; });
+}
+
+// ── Soul IPC handlers ──
+function setupSoulIPC() {
+  const http = require("http");
+
+  function soulGet(urlPath) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      http.get(`http://127.0.0.1:${_soul.port}${urlPath}`, { timeout: 5000 }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      }).on("error", () => resolve(null));
+    });
+  }
+
+  function soulPost(urlPath, body) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      const data = JSON.stringify(body);
+      const req = http.request({
+        hostname: "127.0.0.1", port: _soul.port,
+        path: urlPath, method: body ? "POST" : "GET",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) },
+        timeout: 60000,
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      });
+      req.on("error", () => resolve(null));
+      req.write(data);
+      req.end();
+    });
+  }
+
+  function soulPut(urlPath, body) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      const data = JSON.stringify(body);
+      const req = http.request({
+        hostname: "127.0.0.1", port: _soul.port,
+        path: urlPath, method: "PUT",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) },
+        timeout: 5000,
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      });
+      req.on("error", () => resolve(null));
+      req.write(data);
+      req.end();
+    });
+  }
+
+  // Diary
+  ipcMain.handle("soul-diary-list", (_e, limit) => soulGet(`/diary/list?limit=${limit || 14}`));
+  ipcMain.handle("soul-diary-get", (_e, date) => soulGet(`/diary?date=${date}`));
+  ipcMain.handle("soul-diary-generate", () => soulPost("/diary/generate", {}));
+
+  // Config
+  ipcMain.handle("soul-get-config", () => soulGet("/config"));
+  ipcMain.handle("soul-update-config", (_e, data) => soulPut("/config", data));
+  ipcMain.handle("soul-test-key", (_e, provider, creds) => soulPost("/config/test-key", { provider, ...creds }));
+
+  // i18n strings for secondary windows
+  ipcMain.handle("onboarding-strings", () => {
+    const keys = ["onboardingTitle", "onboardingNameLabel", "onboardingLangLabel",
+      "onboardingProviderLabel", "onboardingKeyLabel", "onboardingTestKey",
+      "onboardingDone", "onboardingSkip"];
+    const result = {};
+    for (const k of keys) result[k] = t(k);
+    return result;
+  });
+  ipcMain.handle("diary-strings", () => ({
+    diaryTitle: t("diaryTitle"),
+    diaryNoEntries: t("diaryNoEntries"),
+    generateDiary: t("generateDiary"),
+  }));
+
+  // Onboarding complete/skip
+  ipcMain.on("onboarding-complete", (_e, config) => {
+    // Save config to soul server
+    if (config) soulPut("/config", config);
+    // Update language in Electron prefs if changed
+    if (config && config.language && config.language !== lang) {
+      _settingsController.applyUpdate("lang", config.language);
+    }
+    _settingsController.applyUpdate("hasCompletedOnboarding", true);
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      onboardingWindow.close();
+    }
+  });
+  ipcMain.on("onboarding-skip", () => {
+    _settingsController.applyUpdate("hasCompletedOnboarding", true);
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      onboardingWindow.close();
+    }
   });
 }
 
@@ -1495,6 +1664,15 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: Soul engine not loaded:", err.message);
     }
+
+    // Setup Soul IPC handlers (diary, config, onboarding)
+    setupSoulIPC();
+
+    // Show onboarding wizard on first launch
+    if (!_settingsController.get("hasCompletedOnboarding")) {
+      // Delay slightly so the pet window is visible first
+      setTimeout(() => openOnboarding(), 2000);
+    }
   });
 
   app.on("before-quit", () => {
@@ -1515,6 +1693,8 @@ if (!gotTheLock) {
     _focus.cleanup();
     if (_speechBubble) _speechBubble.cleanup();
     if (_soul) _soul.shutdown();
+    if (diaryWindow && !diaryWindow.isDestroyed()) diaryWindow.destroy();
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.destroy();
     if (hitWin && !hitWin.isDestroyed()) hitWin.destroy();
   });
 

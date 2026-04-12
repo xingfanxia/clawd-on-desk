@@ -81,6 +81,7 @@ const SCHEMA = {
     defaultFactory: () => ({}),
     normalize: normalizeThemeOverrides,
   },
+  hasCompletedOnboarding: { type: "boolean", default: false },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));

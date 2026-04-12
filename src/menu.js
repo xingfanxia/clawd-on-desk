@@ -450,6 +450,21 @@ module.exports = function initMenu(ctx) {
         },
       );
     }
+    // Soul engine items
+    if (ctx.soulHealthy) {
+      template.push(
+        { type: "separator" },
+        {
+          label: t("whatDoYouSee"),
+          click: () => { if (ctx.onSoulObserve) ctx.onSoulObserve(); },
+        },
+        {
+          label: t("readDiary"),
+          click: () => { if (ctx.onOpenDiary) ctx.onOpenDiary(); },
+        },
+      );
+    }
+
     template.push(
       { type: "separator" },
       {

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src file: data:">
+<title>Welcome to Clawd</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #fafafa; --card-bg: #fff; --text: #18181b; --text-dim: #71717a;
+  --border: #e4e4e7; --accent: #f97316; --accent-hover: #ea580c;
+  --input-bg: #fff; --input-border: #d4d4d8;
+  --success: #22c55e; --error: #ef4444;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09090b; --card-bg: #18181b; --text: #f4f4f5; --text-dim: #a1a1aa;
+    --border: #27272a; --input-bg: #27272a; --input-border: #3f3f46;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; justify-content: center; align-items: center;
+  min-height: 100vh; padding: 24px;
+}
+.wizard {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 16px; padding: 32px; max-width: 420px; width: 100%;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+.title {
+  font-size: 22px; font-weight: 600; text-align: center;
+  margin-bottom: 4px;
+}
+.subtitle {
+  font-size: 13px; color: var(--text-dim); text-align: center;
+  margin-bottom: 24px;
+}
+.crab { text-align: center; font-size: 48px; margin-bottom: 12px; }
+.field { margin-bottom: 16px; }
+.field label {
+  display: block; font-size: 13px; font-weight: 500;
+  margin-bottom: 6px; color: var(--text);
+}
+.field input, .field select {
+  width: 100%; padding: 8px 12px; font-size: 14px;
+  background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--input-border); border-radius: 8px;
+  outline: none; transition: border-color 0.2s;
+}
+.field input:focus, .field select:focus {
+  border-color: var(--accent);
+}
+.field select { cursor: pointer; }
+.row { display: flex; gap: 8px; align-items: flex-end; }
+.row .field { flex: 1; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 16px; font-size: 14px; font-weight: 500;
+  border-radius: 8px; border: none; cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: var(--accent); color: #fff; width: 100%;
+  padding: 10px; font-size: 15px;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary {
+  background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--text-dim); }
+.btn-test { padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+.actions { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.status {
+  font-size: 12px; text-align: center; margin-top: 4px;
+  min-height: 16px;
+}
+.status.success { color: var(--success); }
+.status.error { color: var(--error); }
+.azure-fields { margin-top: 8px; }
+.azure-fields .field { margin-bottom: 8px; }
+.provider-hint {
+  font-size: 11px; color: var(--text-dim); margin-top: 4px;
+}
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="crab">🦀</div>
+  <div class="title" id="title">Welcome to Clawd!</div>
+  <div class="subtitle">Your curious little desktop companion</div>
+
+  <div class="field">
+    <label id="nameLabel">What should I call myself?</label>
+    <input type="text" id="petName" placeholder="Clawd" value="Clawd">
+  </div>
+
+  <div class="field">
+    <label id="langLabel">Language</label>
+    <select id="language">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label id="providerLabel">AI Provider</label>
+    <select id="provider">
+      <option value="azure-openai">Azure OpenAI</option>
+      <option value="openai">OpenAI</option>
+      <option value="gemini">Google Gemini</option>
+      <option value="claude">Anthropic Claude</option>
+    </select>
+    <div class="provider-hint" id="providerHint"></div>
+  </div>
+
+  <div class="field" id="keyField">
+    <label id="keyLabel">API Key</label>
+    <div class="row">
+      <div class="field" style="margin-bottom:0">
+        <input type="password" id="apiKey" placeholder="Paste your API key here">
+      </div>
+      <button class="btn btn-secondary btn-test" id="testBtn" onclick="testConnection()">Test</button>
+    </div>
+    <div class="status" id="testStatus"></div>
+  </div>
+
+  <div class="azure-fields" id="azureFields" style="display:none">
+    <div class="field">
+      <label>Azure Endpoint</label>
+      <input type="text" id="azureEndpoint" placeholder="https://your-resource.cognitiveservices.azure.com/">
+    </div>
+    <div class="field">
+      <label>Deployment (Observe)</label>
+      <input type="text" id="azureDeployment" placeholder="gpt-5.4-nano-standard">
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="doneBtn" onclick="complete()">Let's go!</button>
+    <button class="btn btn-secondary" style="width:100%" onclick="skip()">Skip for now</button>
+  </div>
+</div>
+
+<script>
+const providerSelect = document.getElementById("provider");
+const azureFields = document.getElementById("azureFields");
+const providerHint = document.getElementById("providerHint");
+
+const HINTS = {
+  "azure-openai": "Requires endpoint + deployment name from Azure portal",
+  "openai": "Get your key at platform.openai.com/api-keys",
+  "gemini": "Get your key at aistudio.google.com/apikey",
+  "claude": "Get your key at console.anthropic.com/settings/keys",
+};
+
+providerSelect.addEventListener("change", () => {
+  const p = providerSelect.value;
+  azureFields.style.display = p === "azure-openai" ? "block" : "none";
+  providerHint.textContent = HINTS[p] || "";
+});
+providerHint.textContent = HINTS["azure-openai"];
+
+async function testConnection() {
+  const statusEl = document.getElementById("testStatus");
+  const testBtn = document.getElementById("testBtn");
+  testBtn.disabled = true;
+  statusEl.textContent = "Testing...";
+  statusEl.className = "status";
+
+  const provider = providerSelect.value;
+  const key = document.getElementById("apiKey").value.trim();
+  if (!key) {
+    statusEl.textContent = "Please enter an API key";
+    statusEl.className = "status error";
+    testBtn.disabled = false;
+    return;
+  }
+
+  const creds = { key };
+  if (provider === "azure-openai") {
+    creds.endpoint = document.getElementById("azureEndpoint").value.trim();
+    creds.deployment = document.getElementById("azureDeployment").value.trim() || "gpt-5.4-nano-standard";
+    if (!creds.endpoint) {
+      statusEl.textContent = "Please enter Azure endpoint";
+      statusEl.className = "status error";
+      testBtn.disabled = false;
+      return;
+    }
+  }
+
+  try {
+    const result = await window.onboardingAPI.testKey(provider, creds);
+    if (result && result.ok) {
+      statusEl.textContent = "Connected!";
+      statusEl.className = "status success";
+    } else {
+      statusEl.textContent = "Connection failed" + (result && result.error ? ": " + result.error : "");
+      statusEl.className = "status error";
+    }
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.className = "status error";
+  }
+  testBtn.disabled = false;
+}
+
+async function complete() {
+  const config = {
+    petName: document.getElementById("petName").value.trim() || "Clawd",
+    language: document.getElementById("language").value,
+    provider: providerSelect.value,
+  };
+
+  const key = document.getElementById("apiKey").value.trim();
+  if (key) {
+    const keyMap = {
+      "azure-openai": "azureOpenaiKey",
+      "openai": "openaiKey",
+      "gemini": "geminiKey",
+      "claude": "claudeKey",
+    };
+    config[keyMap[config.provider]] = key;
+  }
+
+  if (config.provider === "azure-openai") {
+    const endpoint = document.getElementById("azureEndpoint").value.trim();
+    const deployment = document.getElementById("azureDeployment").value.trim();
+    if (endpoint) config.azureOpenaiEndpoint = endpoint;
+    if (deployment) config.azureOpenaiDeploymentObserve = deployment;
+  }
+
+  window.onboardingAPI.complete(config);
+}
+
+function skip() {
+  window.onboardingAPI.skip();
+}
+
+// Load existing config if reconnecting
+window.onboardingAPI.getSoulConfig().then((cfg) => {
+  if (cfg && cfg.config) {
+    const c = cfg.config;
+    if (c.petName && c.petName !== "Clawd") document.getElementById("petName").value = c.petName;
+    if (c.language) document.getElementById("language").value = c.language;
+    if (c.provider) providerSelect.value = c.provider;
+    if (c.azureOpenaiEndpoint && c.azureOpenaiEndpoint !== "••••") {
+      document.getElementById("azureEndpoint").value = c.azureOpenaiEndpoint;
+    }
+    providerSelect.dispatchEvent(new Event("change"));
+  }
+}).catch(() => {});
+
+// Load i18n strings
+window.onboardingAPI.getStrings().then((s) => {
+  if (!s) return;
+  document.getElementById("title").textContent = s.onboardingTitle || "Welcome to Clawd!";
+  document.getElementById("nameLabel").textContent = s.onboardingNameLabel || "What should I call myself?";
+  document.getElementById("langLabel").textContent = s.onboardingLangLabel || "Language";
+  document.getElementById("providerLabel").textContent = s.onboardingProviderLabel || "AI Provider";
+  document.getElementById("keyLabel").textContent = s.onboardingKeyLabel || "API Key";
+  document.getElementById("testBtn").textContent = s.onboardingTestKey || "Test";
+  document.getElementById("doneBtn").textContent = s.onboardingDone || "Let's go!";
+}).catch(() => {});
+</script>
+</body>
+</html>
