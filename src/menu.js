@@ -452,7 +452,7 @@ module.exports = function initMenu(ctx) {
     }
     // Soul engine items
     if (ctx.soulHealthy) {
-      template.push(
+      const soulItems = [
         { type: "separator" },
         {
           label: t("whatDoYouSee"),
@@ -461,6 +461,28 @@ module.exports = function initMenu(ctx) {
         {
           label: t("readDiary"),
           click: () => { if (ctx.onOpenDiary) ctx.onOpenDiary(); },
+        },
+      ];
+      // Multi-device options
+      if (ctx.soulIsRemote) {
+        soulItems.push({
+          label: t("disconnectRemote"),
+          click: () => { if (ctx.onDisconnectRemote) ctx.onDisconnectRemote(); },
+        });
+      } else {
+        soulItems.push({
+          label: t("connectRemoteSoul"),
+          click: () => { if (ctx.onConnectRemote) ctx.onConnectRemote(); },
+        });
+      }
+      template.push(...soulItems);
+    } else {
+      // Soul not connected — show connect option
+      template.push(
+        { type: "separator" },
+        {
+          label: t("connectRemoteSoul"),
+          click: () => { if (ctx.onConnectRemote) ctx.onConnectRemote(); },
         },
       );
     }

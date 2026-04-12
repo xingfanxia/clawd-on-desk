@@ -79,10 +79,16 @@ function findNodeBinary() {
 // Path to clawd-soul — sibling directory
 const SOUL_DIR = path.join(__dirname, "..", "..", "clawd-soul");
 
+// Remote soul config path
+const REMOTE_CONFIG_PATH = path.join(DATA_DIR, "remote-soul.json");
+
 module.exports = function initSoulClient(ctx) {
 
 let _soulProcess = null;
 let _soulPort = null;
+let _soulHost = "127.0.0.1";
+let _authToken = null;
+let _isRemote = false;
 let _healthy = false;
 let _observeTimer = null;
 let _proactiveTimer = null;
@@ -99,14 +105,21 @@ function soulRequest(method, urlPath, body) {
     if (!_soulPort) { reject(new Error("Soul not connected")); return; }
 
     const data = body ? JSON.stringify(body) : null;
+    const headers = {};
+    if (data) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(data);
+    }
+    if (_authToken) {
+      headers["Authorization"] = `Bearer ${_authToken}`;
+    }
+
     const req = http.request({
-      hostname: "127.0.0.1",
+      hostname: _soulHost,
       port: _soulPort,
       path: urlPath,
       method,
-      headers: {
-        ...(data ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } : {}),
-      },
+      headers,
       timeout: 60000,
     }, (res) => {
       const chunks = [];
@@ -186,11 +199,12 @@ function spawnSoul() {
 }
 
 /** Poll GET /health until the server responds */
-function waitForHealth(port, attempts = 25, intervalMs = 200) {
+function waitForHealth(port, attempts = 25, intervalMs = 200, host) {
+  const h = host || _soulHost;
   return new Promise((resolve) => {
     let remaining = attempts;
     const check = () => {
-      const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: 1000 }, (res) => {
+      const req = http.get(`http://${h}:${port}/health`, { timeout: 1000 }, (res) => {
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
@@ -215,9 +229,58 @@ function waitForHealth(port, attempts = 25, intervalMs = 200) {
   });
 }
 
-/** Initialize soul connection: discover or spawn, then health check */
+/** Load remote soul config if it exists */
+function loadRemoteConfig() {
+  try {
+    if (fs.existsSync(REMOTE_CONFIG_PATH)) {
+      const rc = JSON.parse(fs.readFileSync(REMOTE_CONFIG_PATH, "utf8"));
+      if (rc.host && rc.port && rc.authToken) {
+        return rc;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/** Save remote soul config */
+function saveRemoteConfig(host, port, authToken, soulName) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(REMOTE_CONFIG_PATH, JSON.stringify({
+    host, port, authToken, soulName,
+    savedAt: new Date().toISOString(),
+  }, null, 2), "utf8");
+}
+
+/** Clear remote config (go back to local mode) */
+function clearRemoteConfig() {
+  try { fs.unlinkSync(REMOTE_CONFIG_PATH); } catch {}
+}
+
+/** Initialize soul connection: remote → local existing → spawn */
 async function init() {
-  // Try existing server first
+  // 1. Try remote soul server (if configured)
+  const remoteConfig = loadRemoteConfig();
+  if (remoteConfig) {
+    console.log(`Clawd Soul: trying remote server at ${remoteConfig.host}:${remoteConfig.port}...`);
+    _soulHost = remoteConfig.host;
+    _soulPort = remoteConfig.port;
+    _authToken = remoteConfig.authToken;
+    _isRemote = true;
+
+    const ok = await waitForHealth(remoteConfig.port, 5, 500, remoteConfig.host);
+    if (ok) {
+      _healthy = true;
+      console.log(`Clawd Soul: connected to remote server (${remoteConfig.soulName || "unknown"})`);
+      startLoops();
+      return true;
+    }
+    console.warn("Clawd Soul: remote server not reachable, falling back to local");
+    _soulHost = "127.0.0.1";
+    _authToken = null;
+    _isRemote = false;
+  }
+
+  // 2. Try existing local server
   const existingPort = discoverExisting();
   if (existingPort) {
     console.log("Clawd Soul: found existing server on port", existingPort);
@@ -474,11 +537,77 @@ function shutdown() {
   if (_proactiveTimer) { clearInterval(_proactiveTimer); _proactiveTimer = null; }
   _healthy = false;
 
-  if (_soulProcess) {
+  // Only kill the soul server if we spawned it (not remote)
+  if (_soulProcess && !_isRemote) {
     console.log("Clawd Soul: shutting down soul server...");
     _soulProcess.kill("SIGTERM");
     _soulProcess = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pairing — connect to a remote soul server
+// ---------------------------------------------------------------------------
+
+/**
+ * Pair with a remote soul server.
+ * @param {string} host - IP address of the host
+ * @param {number} port - Port number
+ * @param {string} code - 6-digit pairing code
+ * @param {string} deviceName - This device's name
+ * @returns {Object} { ok, authToken, soulName, error }
+ */
+async function pairWithRemote(host, port, code, deviceName) {
+  try {
+    const data = JSON.stringify({ code, deviceName });
+    const result = await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: host, port, path: "/pair/connect", method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) },
+        timeout: 10000,
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      });
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+      req.write(data);
+      req.end();
+    });
+
+    if (result && result.ok && result.authToken) {
+      // Save remote config
+      saveRemoteConfig(host, port, result.authToken, result.soulName);
+
+      // Connect to it
+      _soulHost = host;
+      _soulPort = port;
+      _authToken = result.authToken;
+      _isRemote = true;
+      _healthy = true;
+      startLoops();
+
+      console.log(`Clawd Soul: paired with remote soul "${result.soulName}" at ${host}:${port}`);
+      return { ok: true, soulName: result.soulName };
+    }
+
+    return { ok: false, error: result?.error || "Pairing failed" };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/** Disconnect from remote and go back to local */
+function disconnectRemote() {
+  clearRemoteConfig();
+  _isRemote = false;
+  _authToken = null;
+  _soulHost = "127.0.0.1";
+  console.log("Clawd Soul: disconnected from remote, will use local on next restart");
 }
 
 return {
@@ -488,8 +617,12 @@ return {
   doObservation,
   reportEvent,
   updateForegroundApp,
+  pairWithRemote,
+  disconnectRemote,
   get healthy() { return _healthy; },
   get port() { return _soulPort; },
+  get host() { return _soulHost; },
+  get isRemote() { return _isRemote; },
 };
 
 };

@@ -717,8 +717,11 @@ const _menuCtx = {
   openSettingsWindow: () => openSettingsWindow(),
   // Soul engine
   get soulHealthy() { return _soul && _soul.healthy; },
+  get soulIsRemote() { return _soul && _soul.isRemote; },
   onSoulObserve: () => { if (_soul) _soul.doObservation("user-click"); },
   onOpenDiary: () => openDiaryViewer(),
+  onConnectRemote: () => openPairingDialog(),
+  onDisconnectRemote: () => { if (_soul) { _soul.disconnectRemote(); } },
 };
 const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
@@ -963,6 +966,49 @@ function openOnboarding() {
   onboardingWindow.on("closed", () => { onboardingWindow = null; });
 }
 
+// ── Pairing dialog (simple prompt-based) ──
+function openPairingDialog() {
+  const { dialog } = require("electron");
+  // Step 1: Ask for host IP + port
+  dialog.showMessageBox({
+    type: "question",
+    title: t("connectRemoteSoul"),
+    message: "Enter the remote soul server address:",
+    detail: "Format: IP:PORT (e.g., 192.168.1.100:23456)\nThe host must have LAN sharing enabled and a pairing code ready.",
+    buttons: ["Connect", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    // Electron doesn't have input dialogs built-in, so we'll use two prompts
+  }).then((result) => {
+    if (result.response === 1) return;
+    // Use a BrowserWindow-based input since Electron has no native input dialog
+    promptForPairing();
+  });
+}
+
+let pairingInputWindow = null;
+
+function promptForPairing() {
+  if (pairingInputWindow && !pairingInputWindow.isDestroyed()) {
+    pairingInputWindow.focus();
+    return;
+  }
+  pairingInputWindow = new BrowserWindow({
+    width: 400, height: 300,
+    show: false, frame: true, transparent: false,
+    resizable: false, minimizable: false,
+    title: t("connectRemoteSoul"),
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-pairing.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  pairingInputWindow.setMenuBarVisibility(false);
+  pairingInputWindow.loadFile(path.join(__dirname, "..", "soul", "pairing.html"));
+  pairingInputWindow.once("ready-to-show", () => { pairingInputWindow.show(); pairingInputWindow.focus(); });
+  pairingInputWindow.on("closed", () => { pairingInputWindow = null; });
+}
+
 // ── Soul IPC handlers ──
 function setupSoulIPC() {
   const http = require("http");
@@ -1071,6 +1117,24 @@ function setupSoulIPC() {
       onboardingWindow.close();
     }
   });
+
+  // Pairing
+  ipcMain.handle("soul-pair", async (_e, host, port, code) => {
+    if (!_soul) return { ok: false, error: "Soul client not initialized" };
+    const deviceName = require("os").hostname();
+    return _soul.pairWithRemote(host, parseInt(port, 10), code, deviceName);
+  });
+
+  ipcMain.on("pairing-cancel", () => {
+    if (pairingInputWindow && !pairingInputWindow.isDestroyed()) {
+      pairingInputWindow.close();
+    }
+  });
+
+  // LAN mode control (for host machine)
+  ipcMain.handle("soul-enable-lan", () => soulPost("/pair/enable-lan", {}));
+  ipcMain.handle("soul-generate-pairing-code", () => soulPost("/pair/generate", {}));
+  ipcMain.handle("soul-pair-status", () => soulGet("/pair/status"));
 }
 
 function createWindow() {

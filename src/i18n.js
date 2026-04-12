@@ -93,6 +93,13 @@ const i18n = {
     onboardingTestFail: "Connection failed",
     onboardingSkip: "Skip for now",
     onboardingDone: "Let's go!",
+    // Multi-device
+    connectRemoteSoul: "Connect to Remote Soul…",
+    disconnectRemote: "Disconnect Remote Soul",
+    enableLanMode: "Enable LAN Sharing",
+    generatePairingCode: "Generate Pairing Code",
+    pairingCodeLabel: "Pairing Code",
+    remoteConnected: "Remote: {name}",
   },
   zh: {
     size: "大小",
@@ -181,6 +188,13 @@ const i18n = {
     onboardingTestFail: "连接失败",
     onboardingSkip: "先跳过",
     onboardingDone: "开始吧！",
+    // Multi-device
+    connectRemoteSoul: "连接远程灵魂…",
+    disconnectRemote: "断开远程灵魂",
+    enableLanMode: "启用局域网共享",
+    generatePairingCode: "生成配对码",
+    pairingCodeLabel: "配对码",
+    remoteConnected: "远程: {name}",
   },
 };
 

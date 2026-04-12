@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Connect to Remote Soul</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #fafafa; --card-bg: #fff; --text: #18181b; --text-dim: #71717a;
+  --border: #e4e4e7; --accent: #f97316; --accent-hover: #ea580c;
+  --input-bg: #fff; --input-border: #d4d4d8;
+  --success: #22c55e; --error: #ef4444;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09090b; --card-bg: #18181b; --text: #f4f4f5; --text-dim: #a1a1aa;
+    --border: #27272a; --input-bg: #27272a; --input-border: #3f3f46;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  padding: 24px;
+}
+h2 { font-size: 18px; margin-bottom: 4px; }
+.subtitle { font-size: 12px; color: var(--text-dim); margin-bottom: 16px; }
+.tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.tab {
+  padding: 8px 16px; font-size: 13px; cursor: pointer;
+  border-bottom: 2px solid transparent; color: var(--text-dim);
+  background: none; border-top: none; border-left: none; border-right: none;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.panel { display: none; }
+.panel.active { display: block; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.field input {
+  width: 100%; padding: 8px 10px; font-size: 14px;
+  background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--input-border); border-radius: 6px;
+}
+.btn {
+  padding: 8px 16px; font-size: 13px; border-radius: 6px; cursor: pointer;
+  border: none; font-weight: 500;
+}
+.btn-primary { background: var(--accent); color: #fff; width: 100%; padding: 10px; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; }
+.btn-secondary { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.actions { display: flex; gap: 8px; margin-top: 16px; }
+.status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+.status.success { color: var(--success); }
+.status.error { color: var(--error); }
+.code-display {
+  font-size: 32px; font-weight: 700; letter-spacing: 8px;
+  text-align: center; padding: 16px; color: var(--accent);
+  background: var(--input-bg); border-radius: 8px; margin: 12px 0;
+}
+.info { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+</style>
+</head>
+<body>
+<h2>🦀 Multi-Device Soul</h2>
+<div class="subtitle">Share one soul across Mac and Windows</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('connect')">Connect to Host</button>
+  <button class="tab" onclick="switchTab('host')">Host (Share)</button>
+</div>
+
+<!-- Connect tab: enter IP + code to connect to remote soul -->
+<div class="panel active" id="panel-connect">
+  <div class="field">
+    <label>Host Address</label>
+    <input type="text" id="hostAddr" placeholder="192.168.1.100:23456">
+  </div>
+  <div class="field">
+    <label>Pairing Code</label>
+    <input type="text" id="pairCode" placeholder="123456" maxlength="6" style="letter-spacing:4px; font-size:18px; text-align:center">
+  </div>
+  <button class="btn btn-primary" id="connectBtn" onclick="connect()">Connect</button>
+  <div class="status" id="connectStatus"></div>
+</div>
+
+<!-- Host tab: enable LAN mode and generate pairing codes -->
+<div class="panel" id="panel-host">
+  <div class="info">Enable LAN sharing so other devices can connect to this soul server.</div>
+  <button class="btn btn-primary" style="margin-top:12px" id="enableLanBtn" onclick="enableLan()">Enable LAN Sharing</button>
+  <div id="hostInfo" style="display:none; margin-top:16px;">
+    <button class="btn btn-secondary" onclick="generateCode()">Generate Pairing Code</button>
+    <div class="code-display" id="codeDisplay" style="display:none">------</div>
+    <div class="info" id="codeExpiry"></div>
+    <div class="info" id="lanAddresses"></div>
+  </div>
+  <div class="status" id="hostStatus"></div>
+</div>
+
+<div class="actions" style="margin-top:16px">
+  <button class="btn btn-secondary" style="width:100%" onclick="window.pairingAPI.cancel()">Cancel</button>
+</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.querySelector(`.tab[onclick*="${name}"]`).classList.add("active");
+  document.getElementById(`panel-${name}`).classList.add("active");
+}
+
+async function connect() {
+  const addr = document.getElementById("hostAddr").value.trim();
+  const code = document.getElementById("pairCode").value.trim();
+  const status = document.getElementById("connectStatus");
+
+  if (!addr || !code) {
+    status.textContent = "Please enter both address and code";
+    status.className = "status error";
+    return;
+  }
+
+  const parts = addr.split(":");
+  const host = parts[0];
+  const port = parts[1] || "23456";
+
+  document.getElementById("connectBtn").disabled = true;
+  status.textContent = "Connecting...";
+  status.className = "status";
+
+  try {
+    const result = await window.pairingAPI.pair(host, port, code);
+    if (result && result.ok) {
+      status.textContent = "Connected to " + (result.soulName || "remote soul") + "!";
+      status.className = "status success";
+      setTimeout(() => window.pairingAPI.cancel(), 1500);
+    } else {
+      status.textContent = result?.error || "Connection failed";
+      status.className = "status error";
+    }
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = "status error";
+  }
+  document.getElementById("connectBtn").disabled = false;
+}
+
+async function enableLan() {
+  const status = document.getElementById("hostStatus");
+  try {
+    const result = await window.pairingAPI.enableLan();
+    if (result && result.ok) {
+      status.textContent = "LAN mode enabled! Restart the app to apply.";
+      status.className = "status success";
+      document.getElementById("hostInfo").style.display = "block";
+      document.getElementById("enableLanBtn").textContent = "LAN Sharing Enabled";
+      document.getElementById("enableLanBtn").disabled = true;
+      loadStatus();
+    } else {
+      status.textContent = result?.message || "Failed";
+      status.className = "status error";
+    }
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = "status error";
+  }
+}
+
+async function generateCode() {
+  try {
+    const result = await window.pairingAPI.generateCode();
+    if (result && result.ok) {
+      document.getElementById("codeDisplay").style.display = "block";
+      document.getElementById("codeDisplay").textContent = result.code;
+      document.getElementById("codeExpiry").textContent = "Code expires in 5 minutes";
+    }
+  } catch {}
+}
+
+async function loadStatus() {
+  try {
+    const status = await window.pairingAPI.getStatus();
+    if (status && status.ok) {
+      if (status.networkMode === "lan") {
+        document.getElementById("hostInfo").style.display = "block";
+        document.getElementById("enableLanBtn").textContent = "LAN Sharing Enabled";
+        document.getElementById("enableLanBtn").disabled = true;
+        if (status.lanAddresses && status.lanAddresses.length) {
+          document.getElementById("lanAddresses").textContent =
+            "Other devices can connect to: " + status.lanAddresses.map(a => a + ":23456").join(", ");
+        }
+      }
+    }
+  } catch {}
+}
+
+loadStatus();
+</script>
+</body>
+</html>
