@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: rgba(255, 255, 255, 0.95);
+  --text: #18181b;
+  --text-dim: #71717a;
+  --border: rgba(0, 0, 0, 0.08);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --tail-fill: rgba(255, 255, 255, 0.95);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: rgba(24, 24, 27, 0.95);
+    --text: #f4f4f5;
+    --text-dim: #a1a1aa;
+    --border: rgba(255, 255, 255, 0.1);
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --tail-fill: rgba(24, 24, 27, 0.95);
+  }
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-app-region: no-drag;
+  user-select: none;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 8px;
+  opacity: 0;
+  transform: translateY(8px) scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.container.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.container.hiding {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.bubble {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
+  max-width: 260px;
+  min-width: 60px;
+  word-wrap: break-word;
+  position: relative;
+}
+
+.text {
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+/* Italic style for action text */
+.action-text {
+  font-style: italic;
+  color: var(--text-dim);
+}
+
+/* Speech bubble tail (pointing down toward pet) */
+.tail {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--tail-fill);
+  margin-top: -1px;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.06));
+}
+
+/* Typing dots animation */
+.typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+.typing .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: typingBounce 1.2s infinite ease-in-out;
+}
+.typing .dot:nth-child(2) { animation-delay: 0.15s; }
+.typing .dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typingBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div class="container" id="container">
+  <div class="bubble" id="bubble">
+    <div class="text" id="text"></div>
+    <div class="typing" id="typing" style="display:none">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+  </div>
+  <div class="tail"></div>
+</div>
+
+<script>
+const container = document.getElementById("container");
+const textEl = document.getElementById("text");
+const typingEl = document.getElementById("typing");
+
+let hideTimer = null;
+
+/**
+ * Render commentary text safely using DOM methods.
+ * Converts *asterisk actions* into italic <span> elements.
+ * All text content is set via textContent (no innerHTML XSS risk).
+ */
+function renderText(raw) {
+  textEl.textContent = "";
+  // Split on *...*  patterns, alternating between normal text and action text
+  const parts = raw.split(/(\*[^*]+\*)/g);
+  for (const part of parts) {
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      const span = document.createElement("span");
+      span.className = "action-text";
+      span.textContent = part.slice(1, -1);
+      textEl.appendChild(span);
+    } else if (part) {
+      textEl.appendChild(document.createTextNode(part));
+    }
+  }
+}
+
+function show(data) {
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+
+  container.classList.remove("hiding");
+
+  if (data.typing) {
+    textEl.style.display = "none";
+    typingEl.style.display = "flex";
+  } else {
+    typingEl.style.display = "none";
+    textEl.style.display = "block";
+    renderText(data.text || "");
+  }
+
+  // Show with animation
+  requestAnimationFrame(() => {
+    container.classList.add("visible");
+    // Report measured height to main process
+    const h = container.offsetHeight + 16;
+    window.speechAPI.reportHeight(h);
+  });
+
+  // Auto-hide after duration
+  if (data.duration && data.duration > 0) {
+    hideTimer = setTimeout(() => hide(), data.duration);
+  }
+}
+
+function hide() {
+  container.classList.add("hiding");
+  container.classList.remove("visible");
+  setTimeout(() => {
+    textEl.textContent = "";
+    container.classList.remove("hiding");
+  }, 300);
+}
+
+window.speechAPI.onShow(show);
+window.speechAPI.onHide(hide);
+</script>
+</body>
+</html>

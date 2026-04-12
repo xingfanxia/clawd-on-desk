@@ -216,10 +216,49 @@ function resetIdleTimer() {
   mouseStillSince = Date.now();
 }
 
+// ── Foreground app detection (every 5s, for soul engine observation triggers) ──
+const { execFile } = require("child_process");
+const isMac = process.platform === "darwin";
+const isWin = process.platform === "win32";
+let appDetectTimer = null;
+
+function startAppDetection() {
+  if (appDetectTimer) return;
+  appDetectTimer = setInterval(() => {
+    if (!ctx.soul || !ctx.soul.healthy) return;
+
+    if (isMac) {
+      execFile("osascript", ["-e",
+        'tell application "System Events"\n' +
+        'set fp to first application process whose frontmost is true\n' +
+        'set appName to name of fp\n' +
+        'try\nset winTitle to name of front window of fp\n' +
+        'on error\nset winTitle to ""\nend try\n' +
+        'return appName & "|||" & winTitle\nend tell'
+      ], { timeout: 1000 }, (err, stdout) => {
+        if (err) return;
+        const parts = stdout.trim().split("|||");
+        ctx.soul.updateForegroundApp(parts[0] || "", parts[1] || "");
+      });
+    } else if (isWin) {
+      // Windows: use powershell to get foreground window title
+      execFile("powershell", ["-NoProfile", "-Command",
+        "(Get-Process | Where-Object {$_.MainWindowHandle -eq " +
+        "(Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();' " +
+        "-Name Win32 -PassThru)::GetForegroundWindow()}).MainWindowTitle"
+      ], { timeout: 2000 }, (err, stdout) => {
+        if (err) return;
+        ctx.soul.updateForegroundApp("", stdout.trim());
+      });
+    }
+  }, 5000);
+}
+
 function cleanup() {
   if (mainTickTimer) { clearInterval(mainTickTimer); mainTickTimer = null; }
   if (idleLookReturnTimer) { clearTimeout(idleLookReturnTimer); idleLookReturnTimer = null; }
   if (yawnDelayTimer) { clearTimeout(yawnDelayTimer); yawnDelayTimer = null; }
+  if (appDetectTimer) { clearInterval(appDetectTimer); appDetectTimer = null; }
   lastCursorX = null;
   lastCursorY = null;
   isMouseIdle = false;
@@ -235,6 +274,13 @@ Object.defineProperty(startMainTick, '_mouseStillSince', {
   get() { return mouseStillSince; },
 });
 
-return { startMainTick, resetIdleTimer, cleanup, refreshTheme, get _mouseStillSince() { return mouseStillSince; } };
+// Start app detection alongside main tick
+const _origStartMainTick = startMainTick;
+function startMainTickWithAppDetect() {
+  _origStartMainTick();
+  startAppDetection();
+}
+
+return { startMainTick: startMainTickWithAppDetect, resetIdleTimer, cleanup, refreshTheme, get _mouseStillSince() { return mouseStillSince; } };
 
 };

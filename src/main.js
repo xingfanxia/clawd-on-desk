@@ -151,6 +151,8 @@ function flushRuntimeStateToPrefs() {
 
 let _codexMonitor = null;          // Codex CLI JSONL log polling instance
 let _geminiMonitor = null;         // Gemini CLI session JSON polling instance
+let _speechBubble = null;         // Soul speech bubble window
+let _soul = null;                 // Soul server client
 
 // ── Theme loader ──
 const themeLoader = require("./theme-loader");
@@ -416,6 +418,7 @@ const {
 function repositionFloatingBubbles() {
   if (pendingPermissions.length) repositionBubbles();
   repositionUpdateBubble();
+  if (_speechBubble) _speechBubble.reposition();
 }
 
 // ── macOS cross-Space visibility helper ──
@@ -533,6 +536,7 @@ const _tickCtx = {
   miniPeekOut: () => miniPeekOut(),
   getObjRect,
   getHitRectScreen,
+  get soul() { return _soul; },
 };
 const _tick = require("./tick")(_tickCtx);
 const { startMainTick, resetIdleTimer } = _tick;
@@ -1463,6 +1467,34 @@ if (!gotTheLock) {
 
     // Auto-updater: setup event handlers (user triggers check via tray menu)
     setupAutoUpdater();
+
+    // ── Soul engine — AI brain for screen observation + chat + diary ──
+    try {
+      const initSpeechBubble = require("../soul/speech-bubble");
+      _speechBubble = initSpeechBubble({
+        get win() { return win; },
+        get petHidden() { return petHidden; },
+        getNearestWorkArea,
+      });
+
+      const initSoulClient = require("../soul/client");
+      _soul = initSoulClient({
+        get win() { return win; },
+        get petHidden() { return petHidden; },
+        speechBubble: _speechBubble,
+        applyState: (state, svg) => applyState(state, svg || null),
+        resolveDisplayState,
+        getCurrentState: () => _state.getCurrentState(),
+      });
+      _soul.init().then((ok) => {
+        if (ok) console.log("Clawd: Soul engine connected");
+        else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
+      }).catch((err) => {
+        console.warn("Clawd: Soul init failed:", err.message);
+      });
+    } catch (err) {
+      console.warn("Clawd: Soul engine not loaded:", err.message);
+    }
   });
 
   app.on("before-quit", () => {
@@ -1481,6 +1513,8 @@ if (!gotTheLock) {
     stopTopmostWatchdog();
     if (hwndRecoveryTimer) { clearTimeout(hwndRecoveryTimer); hwndRecoveryTimer = null; }
     _focus.cleanup();
+    if (_speechBubble) _speechBubble.cleanup();
+    if (_soul) _soul.shutdown();
     if (hitWin && !hitWin.isDestroyed()) hitWin.destroy();
   });
 
