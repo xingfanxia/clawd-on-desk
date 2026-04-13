@@ -374,6 +374,12 @@ async function doObservation(trigger = "periodic") {
     const screenshot = await captureScreen();
 
     if (trigger === "user-click") {
+      // If bubble is already showing or chat is open, open chat instead of re-reading
+      if ((ctx.speechBubble && ctx.speechBubble.isVisible) || (ctx.chatWindow && ctx.chatWindow.isOpen)) {
+        if (ctx.chatWindow) ctx.chatWindow.open();
+        return;
+      }
+
       // USER CLICKED PET — show thinking animation, then react to screen
       const thinkAnim = mapToAnimation("thinking", null, "speech-bubble");
       if (thinkAnim) ctx.applyState(thinkAnim.state, thinkAnim.svg);
