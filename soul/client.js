@@ -373,30 +373,41 @@ async function doObservation(trigger = "periodic") {
     // Capture screen
     const screenshot = await captureScreen();
 
-    // Send to soul SILENTLY — observations feed into context, no UI
+    if (trigger === "user-click") {
+      // USER CLICKED PET — show thinking animation, then react to screen
+      const thinkAnim = mapToAnimation("thinking", null, "speech-bubble");
+      if (thinkAnim) ctx.applyState(thinkAnim.state, thinkAnim.svg);
+      if (ctx.speechBubble) ctx.speechBubble.showTyping();
+
+      // Send screenshot directly to /react — AI sees screen + responds as friend
+      const result = await soulRequest("POST", "/react", {
+        screenshot,
+        foregroundApp: _lastForegroundApp,
+        windowTitle: _lastWindowTitle,
+      });
+
+      if (result && result.ok && result.reply) {
+        // Show response
+        const anim = mapToAnimation("chat", result.mood, "speech-bubble");
+        if (anim) ctx.applyState(anim.state, anim.svg);
+        if (ctx.speechBubble) {
+          ctx.speechBubble.show(result.reply, 12000);
+        }
+        if (ctx.chatWindow) ctx.chatWindow.setLastCommentary(result.reply);
+      } else {
+        if (ctx.speechBubble) ctx.speechBubble.hide();
+        ctx.applyState(ctx.resolveDisplayState());
+      }
+      return;
+    }
+
+    // PERIODIC — silent observation, feed into context
     const result = await soulRequest("POST", "/observe", {
       screenshot,
       foregroundApp: _lastForegroundApp,
       windowTitle: _lastWindowTitle,
       trigger,
     });
-
-    if (!result) return;
-
-    // For user-triggered observations ("What do you see?"), show the summary
-    if (trigger === "user-click" && result.summary) {
-      // Force a heartbeat to get the pet to react
-      const heartbeat = await soulRequest("GET", "/proactive");
-      if (heartbeat && heartbeat.commentary) {
-        if (ctx.speechBubble) {
-          ctx.speechBubble.show(heartbeat.commentary, heartbeat.duration || 10000);
-        }
-        if (ctx.chatWindow) ctx.chatWindow.setLastCommentary(heartbeat.commentary);
-        const anim = mapToAnimation("observe", heartbeat.mood, heartbeat.action);
-        if (anim) ctx.applyState(anim.state, anim.svg);
-      }
-      return;
-    }
 
     // Periodic observations are silent — no UI feedback
   } catch (err) {
