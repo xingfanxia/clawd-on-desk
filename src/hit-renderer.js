@@ -194,6 +194,8 @@ function handleClick(clientX) {
       clickTimer = null;
       clickCount = 0;
       firstClickDir = null;
+      // Single click — trigger soul screen read
+      window.hitAPI.soulObserve();
     }, CLICK_WINDOW_MS);
   }
 }

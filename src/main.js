@@ -1357,6 +1357,11 @@ function createWindow() {
     sendToRenderer("play-click-reaction", svg, duration);
   });
 
+  // Single click on pet → soul screen read + response
+  ipcMain.on("soul-observe", () => {
+    if (_soul && _soul.healthy) _soul.doObservation("user-click");
+  });
+
   ipcMain.on("drag-end", () => {
     if (!_mini.getMiniMode() && !_mini.getMiniTransitioning()) {
       checkMiniModeSnap();
