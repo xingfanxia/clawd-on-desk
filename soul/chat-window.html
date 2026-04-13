@@ -132,6 +132,16 @@ body {
 /* Action text (italic for *asterisks*) */
 .action-text { font-style: italic; opacity: 0.8; }
 
+/* Date separator */
+.date-sep {
+  text-align: center; font-size: 11px; color: var(--text-dim);
+  padding: 8px 0; margin: 4px 0;
+  display: flex; align-items: center; gap: 8px;
+}
+.date-sep::before, .date-sep::after {
+  content: ''; flex: 1; height: 1px; background: var(--pet-border);
+}
+
 /* Scrollbar */
 .messages::-webkit-scrollbar { width: 4px; }
 .messages::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 2px; }
@@ -165,13 +175,58 @@ const inputEl = document.getElementById("input");
 const sendBtn = document.getElementById("sendBtn");
 const emptyState = document.getElementById("emptyState");
 let typingEl = null;
+let _lastDateLabel = null; // track last date separator shown
 
-function formatTime() {
-  return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+// ---------------------------------------------------------------------------
+// Smart auto-scroll: only scroll to bottom if user is near bottom
+// ---------------------------------------------------------------------------
+function isNearBottom() {
+  const threshold = 100;
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < threshold;
 }
 
+function scrollToBottomIfNeeded() {
+  if (isNearBottom()) messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function forceScrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------
+// Date formatting
+// ---------------------------------------------------------------------------
+function dateLabel(date) {
+  const d = date instanceof Date ? date : new Date();
+  const today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, today)) return "今天";
+  if (sameDay(d, yesterday)) return "昨天";
+  return d.toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+}
+
+function formatTime(date) {
+  const d = date instanceof Date ? date : new Date();
+  return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function maybeInsertDateSep(date) {
+  const d = date instanceof Date ? date : new Date();
+  const label = dateLabel(d);
+  if (label !== _lastDateLabel) {
+    _lastDateLabel = label;
+    const sep = document.createElement("div");
+    sep.className = "date-sep";
+    sep.textContent = label;
+    messagesEl.appendChild(sep);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Text rendering
+// ---------------------------------------------------------------------------
 function renderText(text) {
-  // Convert *asterisk actions* to italic spans safely
   const frag = document.createDocumentFragment();
   const parts = text.split(/(\*[^*]+\*)/g);
   for (const part of parts) {
@@ -187,9 +242,15 @@ function renderText(text) {
   return frag;
 }
 
-function addMessage(text, role) {
+// ---------------------------------------------------------------------------
+// Message rendering
+// ---------------------------------------------------------------------------
+function addMessage(text, role, timestamp) {
   if (emptyState) emptyState.remove();
   removeTyping();
+
+  const msgDate = timestamp ? new Date(timestamp) : new Date();
+  maybeInsertDateSep(msgDate);
 
   const msg = document.createElement("div");
   msg.className = `msg ${role}`;
@@ -200,14 +261,17 @@ function addMessage(text, role) {
 
   const time = document.createElement("div");
   time.className = "time";
-  time.textContent = formatTime();
+  time.textContent = formatTime(msgDate);
 
   msg.appendChild(bubble);
   msg.appendChild(time);
   messagesEl.appendChild(msg);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  scrollToBottomIfNeeded();
 }
 
+// ---------------------------------------------------------------------------
+// Typing indicator
+// ---------------------------------------------------------------------------
 function showTyping() {
   if (typingEl) return;
   if (emptyState) emptyState.remove();
@@ -226,7 +290,7 @@ function showTyping() {
   bubble.appendChild(dots);
   msg.appendChild(bubble);
   messagesEl.appendChild(msg);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  forceScrollToBottom();
   typingEl = msg;
 }
 
@@ -234,6 +298,9 @@ function removeTyping() {
   if (typingEl) { typingEl.remove(); typingEl = null; }
 }
 
+// ---------------------------------------------------------------------------
+// Send message
+// ---------------------------------------------------------------------------
 let _sending = false;
 
 async function send() {
@@ -282,11 +349,12 @@ window.chatAPI.onReply((data) => {
 
 window.chatAPI.onTyping(() => showTyping());
 
-// Load initial context (if opened from speech bubble click)
-// Load full conversation history on open
+// ---------------------------------------------------------------------------
+// Load conversation history on open
+// ---------------------------------------------------------------------------
 window.chatAPI.getHistory().then((data) => {
   if (data && data.messages && data.messages.length > 0) {
-    // Show summary if exists
+    // Show summary separator if exists
     if (data.summary) {
       const summaryEl = document.createElement("div");
       summaryEl.style.cssText = "text-align:center; font-size:11px; color:var(--text-dim); padding:8px; margin:4px 0;";
@@ -296,10 +364,11 @@ window.chatAPI.getHistory().then((data) => {
     // Show recent messages (last 30, skip observation/event types)
     const recent = data.messages.slice(-30);
     for (const msg of recent) {
-      if (msg.role === "user") addMessage(msg.content, "user");
-      else if (msg.role === "assistant") addMessage(msg.content, "pet");
-      // Skip system/observation messages in UI
+      if (msg.role === "user") addMessage(msg.content, "user", msg.ts);
+      else if (msg.role === "assistant") addMessage(msg.content, "pet", msg.ts);
     }
+    // After loading history, always scroll to bottom
+    forceScrollToBottom();
   } else {
     // No history — show last commentary if available
     window.chatAPI.getContext().then((ctx) => {

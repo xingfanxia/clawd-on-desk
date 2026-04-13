@@ -14,7 +14,6 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const crypto = require("crypto");
 const { mapToAnimation, moodIdleAnimation } = require("./emotion-map");
 
 const { execFileSync } = require("child_process");
@@ -83,6 +82,43 @@ const SOUL_DIR = path.join(__dirname, "..", "..", "clawd-soul");
 // Remote soul config path
 const REMOTE_CONFIG_PATH = path.join(DATA_DIR, "remote-soul.json");
 
+// ---------------------------------------------------------------------------
+// Perceptual hash (dHash) for away detection
+// Much more robust than MD5 — ignores cursor blinks, clock changes, etc.
+// ---------------------------------------------------------------------------
+
+/** Compute a 64-bit difference hash from a NativeImage */
+function computeDHash(image) {
+  // Resize to 9x8 (9 wide → 8 horizontal differences per row = 64 bits)
+  const small = image.resize({ width: 9, height: 8, quality: "good" });
+  const bitmap = small.toBitmap(); // BGRA format, stride = width * 4
+  let hash = BigInt(0);
+  let bit = 0;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const idx1 = (y * 9 + x) * 4;
+      const idx2 = (y * 9 + x + 1) * 4;
+      // Grayscale approximation: (B + G + R) / 3
+      const g1 = (bitmap[idx1] + bitmap[idx1 + 1] + bitmap[idx1 + 2]) / 3;
+      const g2 = (bitmap[idx2] + bitmap[idx2 + 1] + bitmap[idx2 + 2]) / 3;
+      if (g1 > g2) hash |= (BigInt(1) << BigInt(bit));
+      bit++;
+    }
+  }
+  return hash;
+}
+
+/** Count differing bits between two 64-bit hashes */
+function hammingDistance(a, b) {
+  let xor = a ^ b;
+  let count = 0;
+  while (xor > BigInt(0)) {
+    count += Number(xor & BigInt(1));
+    xor >>= BigInt(1);
+  }
+  return count;
+}
+
 module.exports = function initSoulClient(ctx) {
 
 let _soulProcess = null;
@@ -95,10 +131,11 @@ let _observeTimer = null;
 let _proactiveTimer = null;
 let _lastForegroundApp = "";
 let _lastWindowTitle = "";
-let _observing = false; // prevent overlapping observations
-let _lastScreenHash = null; // for away detection
-let _sameScreenCount = 0; // consecutive identical screenshots
-const AWAY_THRESHOLD = 3; // 3 identical screenshots = user is away
+let _observing = false; // prevent overlapping periodic observations
+let _lastScreenDHash = null; // perceptual hash for away detection
+let _sameScreenCount = 0; // consecutive similar screenshots
+const AWAY_THRESHOLD = 3; // 3 similar screenshots = user is away
+const DHASH_THRESHOLD = 5; // hamming distance <= 5 = "same screen"
 let _userAway = false;
 
 // ---------------------------------------------------------------------------
@@ -357,9 +394,12 @@ async function captureScreen() {
     const image = source.thumbnail;
     if (image.isEmpty()) return null;
 
+    // Compute perceptual hash for away detection (before JPEG conversion)
+    const dHash = computeDHash(image);
+
     // Convert to JPEG base64 — quality 85 so AI can actually read text
     const jpeg = image.toJPEG(85);
-    return jpeg.toString("base64");
+    return { base64: jpeg.toString("base64"), dHash };
   } catch (err) {
     console.warn("Clawd Soul: screen capture failed:", err.message);
     return null;
@@ -371,18 +411,22 @@ async function captureScreen() {
 // ---------------------------------------------------------------------------
 
 async function doObservation(trigger = "periodic") {
-  if (!_healthy || _observing) return;
+  if (!_healthy) return;
+  // User clicks always go through — only block overlapping periodic observations
+  if (_observing && trigger !== "user-click") return;
   _observing = true;
 
   try {
     // Capture screen
-    const screenshot = await captureScreen();
+    const capture = await captureScreen();
+    const screenshot = capture ? capture.base64 : null;
+    const dHash = capture ? capture.dHash : null;
 
     if (trigger === "user-click") {
       // User interaction resets away detection
       _userAway = false;
       _sameScreenCount = 0;
-      _lastScreenHash = null;
+      _lastScreenDHash = null;
 
       // USER CLICKED PET — show thinking animation, then react to screen
       const thinkAnim = mapToAnimation("thinking", null, "speech-bubble");
@@ -411,31 +455,33 @@ async function doObservation(trigger = "periodic") {
       return;
     }
 
-    // PERIODIC — away detection: skip if screen hasn't changed
-    if (trigger === "periodic" && screenshot) {
-      // Sample from middle of image (header is always identical for same resolution/quality)
-      const mid = Math.floor(screenshot.length / 2);
-      const sample = screenshot.slice(mid - 2000, mid + 2000);
-      const hash = crypto.createHash("md5").update(sample).digest("hex");
-      if (hash === _lastScreenHash) {
-        _sameScreenCount++;
-        console.log(`Clawd Soul: same screen (${_sameScreenCount}/${AWAY_THRESHOLD})`);
-        if (_sameScreenCount >= AWAY_THRESHOLD) {
-          if (!_userAway) {
-            _userAway = true;
-            console.log("Clawd Soul: user appears away (screen unchanged), pausing observations");
+    // PERIODIC — away detection using perceptual hash (dHash)
+    // dHash compares structural gradients, ignoring cursor blinks/clock changes
+    if (trigger === "periodic" && dHash !== null) {
+      if (_lastScreenDHash !== null) {
+        const distance = hammingDistance(dHash, _lastScreenDHash);
+        if (distance <= DHASH_THRESHOLD) {
+          // Screen looks the same (perceptually similar)
+          _sameScreenCount++;
+          console.log(`Clawd Soul: similar screen, distance=${distance} (${_sameScreenCount}/${AWAY_THRESHOLD})`);
+          if (_sameScreenCount >= AWAY_THRESHOLD) {
+            if (!_userAway) {
+              _userAway = true;
+              console.log("Clawd Soul: user appears away (screen unchanged), pausing observations");
+            }
+            return; // skip — don't waste API call
           }
-          return; // skip — don't waste API call
+        } else {
+          // Screen changed
+          if (_userAway) {
+            _userAway = false;
+            console.log(`Clawd Soul: user is back (screen changed, distance=${distance})`);
+            reportEvent("user-returned");
+          }
+          _sameScreenCount = 0;
         }
-      } else {
-        if (_userAway) {
-          _userAway = false;
-          console.log("Clawd Soul: user is back (screen changed)");
-          reportEvent("user-returned");
-        }
-        _sameScreenCount = 0;
-        _lastScreenHash = hash;
       }
+      _lastScreenDHash = dHash;
     }
 
     // Silent observation, feed into context
