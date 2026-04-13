@@ -106,6 +106,17 @@ body {
   </div>
 
   <div class="field">
+    <label>性格 / Personality</label>
+    <select id="archetype">
+      <option value="playful">🎭 小淘气 — 调皮爱玩 / Playful</option>
+      <option value="curious">🔍 学霸 — 好奇好学 / Curious</option>
+      <option value="caring">💛 暖宝宝 — 温暖体贴 / Caring</option>
+      <option value="snarky">😏 毒舌 — 嘴毒心暖 / Snarky</option>
+      <option value="chill">🧘 佛系 — 淡定随缘 / Chill</option>
+    </select>
+  </div>
+
+  <div class="field">
     <label id="providerLabel">AI Provider</label>
     <select id="provider">
       <option value="azure-openai">Azure OpenAI</option>
@@ -212,6 +223,7 @@ async function complete() {
     petName: document.getElementById("petName").value.trim() || "Clawd",
     language: document.getElementById("language").value,
     provider: providerSelect.value,
+    archetype: document.getElementById("archetype").value,
   };
 
   const key = document.getElementById("apiKey").value.trim();

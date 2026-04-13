@@ -1103,7 +1103,14 @@ function setupSoulIPC() {
   // Onboarding complete/skip
   ipcMain.on("onboarding-complete", (_e, config) => {
     // Save config to soul server
-    if (config) soulPut("/config", config);
+    if (config) {
+      // Save archetype separately (it's a soul property, not config)
+      if (config.archetype) {
+        soulPut("/soul/archetype", { archetype: config.archetype });
+        delete config.archetype;
+      }
+      soulPut("/config", config);
+    }
     // Update language in Electron prefs if changed
     if (config && config.language && config.language !== lang) {
       _settingsController.applyUpdate("lang", config.language);
