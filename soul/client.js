@@ -342,7 +342,7 @@ async function captureScreen() {
   try {
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
-      thumbnailSize: { width: 1280, height: 720 },
+      thumbnailSize: { width: 1920, height: 1080 },
     });
 
     if (sources.length === 0) return null;
@@ -352,8 +352,8 @@ async function captureScreen() {
     const image = source.thumbnail;
     if (image.isEmpty()) return null;
 
-    // Convert to JPEG base64
-    const jpeg = image.toJPEG(60); // quality 60 for speed
+    // Convert to JPEG base64 — quality 85 so AI can actually read text
+    const jpeg = image.toJPEG(85);
     return jpeg.toString("base64");
   } catch (err) {
     console.warn("Clawd Soul: screen capture failed:", err.message);
