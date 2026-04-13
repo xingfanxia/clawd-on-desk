@@ -1708,6 +1708,7 @@ if (!gotTheLock) {
         get win() { return win; },
         get petHidden() { return petHidden; },
         getNearestWorkArea,
+        getHitRectScreen: (bounds) => getHitRectScreen(bounds),
       });
 
       const initSoulClient = require("../soul/client");

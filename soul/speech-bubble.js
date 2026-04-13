@@ -66,15 +66,26 @@ module.exports = function initSpeechBubble(ctx) {
   }
 
   function computePosition(petBounds, bubbleH) {
-    // Position bubble above the pet, horizontally centered
-    const x = Math.round(petBounds.x + (petBounds.width - BUBBLE_WIDTH) / 2);
-    const y = Math.round(petBounds.y - bubbleH - BUBBLE_MARGIN_ABOVE_PET);
+    // Use the hit rect (actual pet sprite position) if available,
+    // not the full transparent render window bounds
+    const hitRect = ctx.getHitRectScreen ? ctx.getHitRectScreen(petBounds) : null;
+
+    let anchorX, anchorTop;
+    if (hitRect) {
+      // Position above the pet sprite's actual top edge
+      anchorX = (hitRect.left + hitRect.right) / 2;
+      anchorTop = hitRect.top;
+    } else {
+      // Fallback: assume pet is at bottom 30% of the window
+      anchorX = petBounds.x + petBounds.width / 2;
+      anchorTop = petBounds.y + petBounds.height * 0.65;
+    }
+
+    const x = Math.round(anchorX - BUBBLE_WIDTH / 2);
+    const y = Math.round(anchorTop - bubbleH - BUBBLE_MARGIN_ABOVE_PET);
 
     // Clamp to work area
-    const wa = ctx.getNearestWorkArea(
-      petBounds.x + petBounds.width / 2,
-      petBounds.y + petBounds.height / 2,
-    );
+    const wa = ctx.getNearestWorkArea(anchorX, anchorTop);
 
     return {
       x: Math.max(wa.x, Math.min(x, wa.x + wa.width - BUBBLE_WIDTH)),
