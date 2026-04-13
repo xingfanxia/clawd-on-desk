@@ -39,6 +39,14 @@ body {
 .header .avatar { font-size: 24px; }
 .header .name { font-size: 14px; font-weight: 600; }
 .header .status { font-size: 11px; color: var(--text-dim); }
+.header .close-btn {
+  margin-left: auto; -webkit-app-region: no-drag;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-dim);
+  font-size: 18px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+}
+.header .close-btn:hover { background: rgba(128,128,128,0.2); color: var(--text); }
 
 /* Messages */
 .messages {
@@ -136,6 +144,7 @@ body {
     <div class="name" id="petName">Clawd</div>
     <div class="status" id="petStatus">在线</div>
   </div>
+  <button class="close-btn" onclick="window.close()" title="Close">×</button>
 </div>
 
 <div class="messages" id="messages">
