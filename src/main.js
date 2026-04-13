@@ -153,6 +153,7 @@ let _codexMonitor = null;          // Codex CLI JSONL log polling instance
 let _geminiMonitor = null;         // Gemini CLI session JSON polling instance
 let _speechBubble = null;         // Soul speech bubble window
 let _soul = null;                 // Soul server client
+let _chatWindow = null;           // Soul chat window
 
 // ── Theme loader ──
 const themeLoader = require("./theme-loader");
@@ -719,6 +720,7 @@ const _menuCtx = {
   get soulHealthy() { return _soul && _soul.healthy; },
   get soulIsRemote() { return _soul && _soul.isRemote; },
   onSoulObserve: () => { if (_soul) _soul.doObservation("user-click"); },
+  onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
   onOpenDiary: () => openDiaryViewer(),
   onConnectRemote: () => openPairingDialog(),
   onDisconnectRemote: () => { if (_soul) { _soul.disconnectRemote(); } },
@@ -1703,12 +1705,21 @@ if (!gotTheLock) {
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     try {
+      // Chat window (must be created before speech bubble so it can be referenced)
+      const initChatWindow = require("../soul/chat-window");
+      _chatWindow = initChatWindow({
+        get win() { return win; },
+        get soul() { return _soul; },
+        getNearestWorkArea,
+      });
+
       const initSpeechBubble = require("../soul/speech-bubble");
       _speechBubble = initSpeechBubble({
         get win() { return win; },
         get petHidden() { return petHidden; },
         getNearestWorkArea,
         getHitRectScreen: (bounds) => getHitRectScreen(bounds),
+        onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
       });
 
       const initSoulClient = require("../soul/client");
@@ -1716,6 +1727,7 @@ if (!gotTheLock) {
         get win() { return win; },
         get petHidden() { return petHidden; },
         speechBubble: _speechBubble,
+        chatWindow: _chatWindow,
         applyState: (state, svg) => applyState(state, svg || null),
         resolveDisplayState,
         getCurrentState: () => _state.getCurrentState(),
@@ -1757,6 +1769,7 @@ if (!gotTheLock) {
     if (hwndRecoveryTimer) { clearTimeout(hwndRecoveryTimer); hwndRecoveryTimer = null; }
     _focus.cleanup();
     if (_speechBubble) _speechBubble.cleanup();
+    if (_chatWindow) _chatWindow.close();
     if (_soul) _soul.shutdown();
     if (diaryWindow && !diaryWindow.isDestroyed()) diaryWindow.destroy();
     if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.destroy();

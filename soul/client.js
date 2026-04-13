@@ -412,6 +412,10 @@ async function doObservation(trigger = "periodic") {
     if (ctx.speechBubble) {
       ctx.speechBubble.show(result.commentary, result.duration || 8000);
     }
+    // Update chat window context so clicking bubble shows this comment
+    if (ctx.chatWindow) {
+      ctx.chatWindow.setLastCommentary(result.commentary);
+    }
   } catch (err) {
     console.warn("Clawd Soul: observation failed:", err.message);
     if (ctx.speechBubble) ctx.speechBubble.hide();
@@ -505,7 +509,7 @@ function reportEvent(eventName) {
 // ---------------------------------------------------------------------------
 
 function startLoops() {
-  // Periodic observation (every 30s)
+  // Periodic observation (every 60s — pet should mostly be silent)
   _observeTimer = setInterval(() => {
     // Only observe when not in working/sleeping states (don't interrupt agent work)
     const state = ctx.getCurrentState();
@@ -514,7 +518,7 @@ function startLoops() {
     if (!skip.includes(state)) {
       doObservation("periodic");
     }
-  }, 30000);
+  }, 60000);
 
   // Proactive message polling (every 60s)
   _proactiveTimer = setInterval(() => {

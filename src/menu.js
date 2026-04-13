@@ -455,6 +455,10 @@ module.exports = function initMenu(ctx) {
       const soulItems = [
         { type: "separator" },
         {
+          label: t("chatWithClawd"),
+          click: () => { if (ctx.onOpenChat) ctx.onOpenChat(); },
+        },
+        {
           label: t("whatDoYouSee"),
           click: () => { if (ctx.onSoulObserve) ctx.onSoulObserve(); },
         },

@@ -48,7 +48,8 @@ module.exports = function initSpeechBubble(ctx) {
       },
     });
 
-    bubble.setIgnoreMouseEvents(true);
+    // Bubble is clickable — clicking opens the chat window
+    bubble.setIgnoreMouseEvents(false);
 
     // macOS: visible on all spaces
     if (isMac) {
@@ -188,6 +189,12 @@ module.exports = function initSpeechBubble(ctx) {
       measuredHeight = Math.max(40, Math.min(h, 300));
       reposition();
     }
+  });
+
+  // Click bubble → open chat window
+  ipcMain.on("speech-open-chat", () => {
+    if (ctx.onOpenChat) ctx.onOpenChat();
+    hide(); // hide the bubble after opening chat
   });
 
   return {

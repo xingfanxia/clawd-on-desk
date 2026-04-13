@@ -63,6 +63,12 @@ html, body {
   min-width: 60px;
   word-wrap: break-word;
   position: relative;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.bubble:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15), 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .text {
@@ -192,6 +198,11 @@ function hide() {
 
 window.speechAPI.onShow(show);
 window.speechAPI.onHide(hide);
+
+// Click bubble → open chat window
+document.getElementById("bubble").addEventListener("click", () => {
+  window.speechAPI.openChat();
+});
 </script>
 </body>
 </html>
