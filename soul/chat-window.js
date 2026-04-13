@@ -90,9 +90,22 @@ module.exports = function initChatWindow(ctx) {
     return { lastCommentary: _lastCommentary };
   });
 
-  ipcMain.handle("soul-chat-history", () => {
-    // Could return stored history in future
-    return { messages: [] };
+  ipcMain.handle("soul-chat-history", async () => {
+    // Fetch from soul server's persistent JSONL history
+    if (!ctx.soul || !ctx.soul.healthy) return { messages: [] };
+    try {
+      const http = require("http");
+      return new Promise((resolve) => {
+        http.get(`http://127.0.0.1:${ctx.soul.port}/chat/history`, { timeout: 5000 }, (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+            catch { resolve({ messages: [] }); }
+          });
+        }).on("error", () => resolve({ messages: [] }));
+      });
+    } catch { return { messages: [] }; }
   });
 
   return {

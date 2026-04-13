@@ -373,16 +373,7 @@ async function doObservation(trigger = "periodic") {
     // Capture screen
     const screenshot = await captureScreen();
 
-    // Show thinking animation
-    const thinkAnim = mapToAnimation("thinking", null, "speech-bubble");
-    if (thinkAnim && ctx.speechBubble) {
-      ctx.speechBubble.showTyping();
-    }
-    if (thinkAnim) {
-      ctx.applyState(thinkAnim.state, thinkAnim.svg);
-    }
-
-    // Send to soul
+    // Send to soul SILENTLY — observations feed into context, no UI
     const result = await soulRequest("POST", "/observe", {
       screenshot,
       foregroundApp: _lastForegroundApp,
@@ -390,35 +381,26 @@ async function doObservation(trigger = "periodic") {
       trigger,
     });
 
-    if (!result) {
-      if (ctx.speechBubble) ctx.speechBubble.hide();
+    if (!result) return;
+
+    // For user-triggered observations ("What do you see?"), show the summary
+    if (trigger === "user-click" && result.summary) {
+      // Force a heartbeat to get the pet to react
+      const heartbeat = await soulRequest("GET", "/proactive");
+      if (heartbeat && heartbeat.commentary) {
+        if (ctx.speechBubble) {
+          ctx.speechBubble.show(heartbeat.commentary, heartbeat.duration || 10000);
+        }
+        if (ctx.chatWindow) ctx.chatWindow.setLastCommentary(heartbeat.commentary);
+        const anim = mapToAnimation("observe", heartbeat.mood, heartbeat.action);
+        if (anim) ctx.applyState(anim.state, anim.svg);
+      }
       return;
     }
 
-    // Map response to animation
-    if (result.action === "silent" || result.action === "throttled" || !result.commentary) {
-      // Hide typing indicator, return to previous state
-      if (ctx.speechBubble) ctx.speechBubble.hide();
-      const resolved = ctx.resolveDisplayState();
-      ctx.applyState(resolved);
-      return;
-    }
-
-    // Show commentary with emotion-appropriate animation
-    const anim = mapToAnimation("observe", result.mood, result.action);
-    if (anim) {
-      ctx.applyState(anim.state, anim.svg);
-    }
-    if (ctx.speechBubble) {
-      ctx.speechBubble.show(result.commentary, result.duration || 8000);
-    }
-    // Update chat window context so clicking bubble shows this comment
-    if (ctx.chatWindow) {
-      ctx.chatWindow.setLastCommentary(result.commentary);
-    }
+    // Periodic observations are silent — no UI feedback
   } catch (err) {
     console.warn("Clawd Soul: observation failed:", err.message);
-    if (ctx.speechBubble) ctx.speechBubble.hide();
   } finally {
     _observing = false;
   }
@@ -509,24 +491,23 @@ function reportEvent(eventName) {
 // ---------------------------------------------------------------------------
 
 function startLoops() {
-  // Periodic observation (every 60s — pet should mostly be silent)
+  // Silent observation (every 45s — feeds context, no bubbles)
   _observeTimer = setInterval(() => {
-    // Only observe when not in working/sleeping states (don't interrupt agent work)
     const state = ctx.getCurrentState();
     const skip = ["working", "thinking", "juggling", "sweeping", "carrying",
                   "sleeping", "dozing", "collapsing", "yawning", "waking"];
     if (!skip.includes(state)) {
-      doObservation("periodic");
+      doObservation("periodic"); // now silent — just adds to session context
     }
-  }, 60000);
+  }, 45000);
 
-  // Proactive message polling (every 60s)
+  // Heartbeat (every 30 min) — pet's inner voice, decides to speak or not
   _proactiveTimer = setInterval(() => {
-    const state = ctx.getCurrentState();
-    if (state === "idle" || state === "mini-idle") {
-      pollProactive();
-    }
-  }, 60000);
+    pollProactive(); // calls GET /proactive which runs heartbeat()
+  }, 30 * 60 * 1000); // 30 minutes
+
+  // Also do one heartbeat check after 2 minutes (first proactive after startup)
+  setTimeout(() => pollProactive(), 2 * 60 * 1000);
 
   // Report that the user is here
   reportEvent("user-returned");

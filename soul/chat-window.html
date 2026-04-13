@@ -268,9 +268,28 @@ window.chatAPI.onReply((data) => {
 window.chatAPI.onTyping(() => showTyping());
 
 // Load initial context (if opened from speech bubble click)
-window.chatAPI.getContext().then((ctx) => {
-  if (ctx && ctx.lastCommentary) {
-    addMessage(ctx.lastCommentary, "pet");
+// Load full conversation history on open
+window.chatAPI.getHistory().then((data) => {
+  if (data && data.messages && data.messages.length > 0) {
+    // Show summary if exists
+    if (data.summary) {
+      const summaryEl = document.createElement("div");
+      summaryEl.style.cssText = "text-align:center; font-size:11px; color:var(--text-dim); padding:8px; margin:4px 0;";
+      summaryEl.textContent = "── earlier conversation summarized ──";
+      messagesEl.appendChild(summaryEl);
+    }
+    // Show recent messages (last 30, skip observation/event types)
+    const recent = data.messages.slice(-30);
+    for (const msg of recent) {
+      if (msg.role === "user") addMessage(msg.content, "user");
+      else if (msg.role === "assistant") addMessage(msg.content, "pet");
+      // Skip system/observation messages in UI
+    }
+  } else {
+    // No history — show last commentary if available
+    window.chatAPI.getContext().then((ctx) => {
+      if (ctx && ctx.lastCommentary) addMessage(ctx.lastCommentary, "pet");
+    }).catch(() => {});
   }
 }).catch(() => {});
 </script>
