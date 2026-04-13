@@ -501,13 +501,13 @@ function startLoops() {
     }
   }, 45000);
 
-  // Heartbeat (every 30 min) — pet's inner voice, decides to speak or not
+  // Heartbeat (every 5 min) — pet's inner voice, decides to speak or not
   _proactiveTimer = setInterval(() => {
     pollProactive(); // calls GET /proactive which runs heartbeat()
-  }, 30 * 60 * 1000); // 30 minutes
+  }, 5 * 60 * 1000); // 5 minutes
 
-  // Also do one heartbeat check after 2 minutes (first proactive after startup)
-  setTimeout(() => pollProactive(), 2 * 60 * 1000);
+  // First heartbeat after 90 seconds
+  setTimeout(() => pollProactive(), 90 * 1000);
 
   // Report that the user is here
   reportEvent("user-returned");
