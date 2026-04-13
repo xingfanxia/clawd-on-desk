@@ -11,24 +11,42 @@
   --border: #e4e4e7; --accent: #f97316; --accent-hover: #ea580c;
   --input-bg: #fff; --input-border: #d4d4d8;
   --success: #22c55e; --error: #ef4444;
+  --user-bg: #f97316; --user-text: #fff;
+  --pet-bg: #fff; --pet-border: #e4e4e7;
+  --chat-bg: #fafafa;
+  --send-bg: #f97316; --send-text: #fff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #09090b; --card-bg: #18181b; --text: #f4f4f5; --text-dim: #a1a1aa;
     --border: #27272a; --input-bg: #27272a; --input-border: #3f3f46;
+    --user-bg: #ea580c; --user-text: #fff;
+    --pet-bg: #1e1e1e; --pet-border: #333;
+    --chat-bg: #09090b;
+    --send-bg: #ea580c; --send-text: #fff;
   }
 }
+html, body { height: 100%; overflow: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg); color: var(--text);
-  display: flex; justify-content: center; align-items: center;
-  min-height: 100vh; padding: 24px;
+  display: flex; flex-direction: column;
 }
-.wizard {
+
+/* ── Step 1: API Setup ── */
+.step { display: none; flex-direction: column; height: 100%; }
+.step.active { display: flex; }
+
+.step1-wrap {
+  flex: 1; display: flex; justify-content: center; align-items: flex-start;
+  padding: 24px; overflow-y: auto;
+}
+.card {
   background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 16px; padding: 32px; max-width: 420px; width: 100%;
   box-shadow: 0 4px 24px rgba(0,0,0,0.08);
 }
+.crab { text-align: center; font-size: 48px; margin-bottom: 12px; }
 .title {
   font-size: 22px; font-weight: 600; text-align: center;
   margin-bottom: 4px;
@@ -37,7 +55,6 @@ body {
   font-size: 13px; color: var(--text-dim); text-align: center;
   margin-bottom: 24px;
 }
-.crab { text-align: center; font-size: 48px; margin-bottom: 12px; }
 .field { margin-bottom: 16px; }
 .field label {
   display: block; font-size: 13px; font-weight: 500;
@@ -84,82 +101,210 @@ body {
 .provider-hint {
   font-size: 11px; color: var(--text-dim); margin-top: 4px;
 }
+.skip-link {
+  display: block; text-align: center; margin-top: 12px;
+  font-size: 13px; color: var(--text-dim); cursor: pointer;
+  text-decoration: underline; background: none; border: none;
+}
+.skip-link:hover { color: var(--text); }
+
+/* ── Step 2: Chat ── */
+.step2 { background: var(--bg); }
+
+.chat-header {
+  padding: 14px 20px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.chat-header .avatar { font-size: 28px; }
+.chat-header .name { font-size: 15px; font-weight: 600; }
+.chat-header .sub { font-size: 11px; color: var(--text-dim); }
+
+.messages {
+  flex: 1; overflow-y: auto; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.msg {
+  max-width: 80%; display: flex; flex-direction: column;
+  animation: msgIn 0.2s ease;
+}
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.msg.user { align-self: flex-end; }
+.msg.pet { align-self: flex-start; }
+.msg .bubble {
+  padding: 8px 12px; border-radius: 12px;
+  font-size: 13px; line-height: 1.5;
+  word-wrap: break-word; white-space: pre-wrap;
+}
+.msg.user .bubble {
+  background: var(--user-bg); color: var(--user-text);
+  border-bottom-right-radius: 4px;
+}
+.msg.pet .bubble {
+  background: var(--pet-bg); border: 1px solid var(--pet-border);
+  border-bottom-left-radius: 4px;
+}
+.action-text { font-style: italic; opacity: 0.8; }
+
+/* Typing indicator */
+.typing-indicator { display: flex; gap: 3px; padding: 8px 12px; }
+.typing-indicator .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-dim);
+  animation: typeBounce 1.2s infinite;
+}
+.typing-indicator .dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-indicator .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typeBounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* Input area */
+.input-area {
+  padding: 10px 14px; display: flex; gap: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.input-area input {
+  flex: 1; padding: 8px 14px; font-size: 13px;
+  background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--input-border); border-radius: 20px;
+  outline: none;
+}
+.input-area input:focus { border-color: var(--accent); }
+.input-area input::placeholder { color: var(--text-dim); }
+.send-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--send-bg); color: var(--send-text);
+  border: none; cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.2s;
+}
+.send-btn:hover { opacity: 0.85; }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Completion card */
+.completion-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px; margin: 16px;
+  text-align: center;
+  animation: msgIn 0.3s ease;
+}
+.completion-card .emoji { font-size: 40px; margin-bottom: 8px; }
+.completion-card .archetype-name {
+  font-size: 18px; font-weight: 600; margin-bottom: 6px;
+}
+.completion-card .reason {
+  font-size: 13px; color: var(--text-dim); margin-bottom: 16px;
+  line-height: 1.5;
+}
+.completion-card .greeting {
+  font-size: 14px; margin-bottom: 20px;
+}
+
+/* Scrollbar */
+.messages::-webkit-scrollbar { width: 4px; }
+.messages::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 2px; }
 </style>
 </head>
 <body>
-<div class="wizard">
-  <div class="crab">🦀</div>
-  <div class="title" id="title">Welcome to Clawd!</div>
-  <div class="subtitle">Your curious little desktop companion</div>
 
-  <div class="field">
-    <label id="nameLabel">What should I call myself?</label>
-    <input type="text" id="petName" placeholder="Clawd" value="Clawd">
-  </div>
+<!-- ════════ Step 1: API Setup ════════ -->
+<div class="step active" id="step1">
+  <div class="step1-wrap">
+    <div class="card">
+      <div class="crab">🦀</div>
+      <div class="title" id="title">Welcome to Clawd!</div>
+      <div class="subtitle">Your curious little desktop companion</div>
 
-  <div class="field">
-    <label id="langLabel">Language</label>
-    <select id="language">
-      <option value="en">English</option>
-      <option value="zh">中文</option>
-    </select>
-  </div>
-
-  <div class="field">
-    <label>性格 / Personality</label>
-    <select id="archetype">
-      <option value="playful">🎭 小淘气 — 调皮爱玩 / Playful</option>
-      <option value="curious">🔍 学霸 — 好奇好学 / Curious</option>
-      <option value="caring">💛 暖宝宝 — 温暖体贴 / Caring</option>
-      <option value="snarky">😏 毒舌 — 嘴毒心暖 / Snarky</option>
-      <option value="chill">🧘 佛系 — 淡定随缘 / Chill</option>
-    </select>
-  </div>
-
-  <div class="field">
-    <label id="providerLabel">AI Provider</label>
-    <select id="provider">
-      <option value="azure-openai">Azure OpenAI</option>
-      <option value="openai">OpenAI</option>
-      <option value="gemini">Google Gemini</option>
-      <option value="claude">Anthropic Claude</option>
-    </select>
-    <div class="provider-hint" id="providerHint"></div>
-  </div>
-
-  <div class="field" id="keyField">
-    <label id="keyLabel">API Key</label>
-    <div class="row">
-      <div class="field" style="margin-bottom:0">
-        <input type="password" id="apiKey" placeholder="Paste your API key here">
+      <div class="field">
+        <label id="langLabel">Language</label>
+        <select id="language">
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+        </select>
       </div>
-      <button class="btn btn-secondary btn-test" id="testBtn" onclick="testConnection()">Test</button>
+
+      <div class="field">
+        <label id="providerLabel">AI Provider</label>
+        <select id="provider">
+          <option value="azure-openai">Azure OpenAI</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="claude">Anthropic Claude</option>
+        </select>
+        <div class="provider-hint" id="providerHint"></div>
+      </div>
+
+      <div class="field" id="keyField">
+        <label id="keyLabel">API Key</label>
+        <div class="row">
+          <div class="field" style="margin-bottom:0">
+            <input type="password" id="apiKey" placeholder="Paste your API key here">
+          </div>
+          <button class="btn btn-secondary btn-test" id="testBtn" onclick="testConnection()">Test</button>
+        </div>
+        <div class="status" id="testStatus"></div>
+      </div>
+
+      <div class="azure-fields" id="azureFields" style="display:none">
+        <div class="field">
+          <label>Azure Endpoint</label>
+          <input type="text" id="azureEndpoint" placeholder="https://your-resource.cognitiveservices.azure.com/">
+        </div>
+        <div class="field">
+          <label>Deployment (Observe)</label>
+          <input type="text" id="azureDeployment" placeholder="gpt-5.4-nano-standard">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="continueBtn" disabled onclick="goToStep2()">Continue to meet your pet</button>
+      </div>
+      <button class="skip-link" onclick="skip()">Skip setup</button>
     </div>
-    <div class="status" id="testStatus"></div>
+  </div>
+</div>
+
+<!-- ════════ Step 2: Chat with Pet ════════ -->
+<div class="step step2" id="step2">
+  <div class="chat-header">
+    <span class="avatar">🦀</span>
+    <div>
+      <div class="name" id="chatPetName">Clawd</div>
+      <div class="sub" id="chatSubtitle">Getting to know you...</div>
+    </div>
   </div>
 
-  <div class="azure-fields" id="azureFields" style="display:none">
-    <div class="field">
-      <label>Azure Endpoint</label>
-      <input type="text" id="azureEndpoint" placeholder="https://your-resource.cognitiveservices.azure.com/">
-    </div>
-    <div class="field">
-      <label>Deployment (Observe)</label>
-      <input type="text" id="azureDeployment" placeholder="gpt-5.4-nano-standard">
-    </div>
-  </div>
+  <div class="messages" id="messages"></div>
 
-  <div class="actions">
-    <button class="btn btn-primary" id="doneBtn" onclick="complete()">Let's go!</button>
-    <button class="btn btn-secondary" style="width:100%" onclick="skip()">Skip for now</button>
+  <div class="input-area" id="chatInputArea">
+    <input type="text" id="chatInput" placeholder="Say something..." autofocus>
+    <button class="send-btn" id="sendBtn" onclick="sendChat()">↑</button>
   </div>
 </div>
 
 <script>
+// ── State ──
+let _keyTested = false;
+let _history = [];
+let _step1Config = {};
+let _typingEl = null;
+
+// ── DOM refs ──
 const providerSelect = document.getElementById("provider");
 const azureFields = document.getElementById("azureFields");
 const providerHint = document.getElementById("providerHint");
+const continueBtn = document.getElementById("continueBtn");
+const messagesEl = document.getElementById("messages");
+const chatInput = document.getElementById("chatInput");
+const sendBtn = document.getElementById("sendBtn");
 
+// ── Provider hints ──
 const HINTS = {
   "azure-openai": "Requires endpoint + deployment name from Azure portal",
   "openai": "Get your key at platform.openai.com/api-keys",
@@ -171,9 +316,15 @@ providerSelect.addEventListener("change", () => {
   const p = providerSelect.value;
   azureFields.style.display = p === "azure-openai" ? "block" : "none";
   providerHint.textContent = HINTS[p] || "";
+  // Reset test state on provider change
+  _keyTested = false;
+  continueBtn.disabled = true;
+  document.getElementById("testStatus").textContent = "";
+  document.getElementById("testStatus").className = "status";
 });
 providerHint.textContent = HINTS["azure-openai"];
 
+// ── Step 1: Test Connection ──
 async function testConnection() {
   const statusEl = document.getElementById("testStatus");
   const testBtn = document.getElementById("testBtn");
@@ -207,41 +358,236 @@ async function testConnection() {
     if (result && result.ok) {
       statusEl.textContent = "Connected!";
       statusEl.className = "status success";
+      _keyTested = true;
+      continueBtn.disabled = false;
     } else {
       statusEl.textContent = "Connection failed" + (result && result.error ? ": " + result.error : "");
       statusEl.className = "status error";
+      _keyTested = false;
+      continueBtn.disabled = true;
     }
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
     statusEl.className = "status error";
+    _keyTested = false;
+    continueBtn.disabled = true;
   }
   testBtn.disabled = false;
 }
 
-async function complete() {
-  const config = {
-    petName: document.getElementById("petName").value.trim() || "Clawd",
+// ── Step 1 → Step 2 transition ──
+function goToStep2() {
+  if (!_keyTested) return;
+
+  // Capture step 1 config
+  _step1Config = {
     language: document.getElementById("language").value,
     provider: providerSelect.value,
-    archetype: document.getElementById("archetype").value,
   };
 
   const key = document.getElementById("apiKey").value.trim();
-  if (key) {
+  // Only save the key if user entered a new one (not the masked placeholder)
+  if (key && !key.startsWith("••••")) {
     const keyMap = {
       "azure-openai": "azureOpenaiKey",
       "openai": "openaiKey",
       "gemini": "geminiKey",
       "claude": "claudeKey",
     };
-    config[keyMap[config.provider]] = key;
+    _step1Config[keyMap[_step1Config.provider]] = key;
   }
 
-  if (config.provider === "azure-openai") {
+  if (_step1Config.provider === "azure-openai") {
     const endpoint = document.getElementById("azureEndpoint").value.trim();
     const deployment = document.getElementById("azureDeployment").value.trim();
-    if (endpoint) config.azureOpenaiEndpoint = endpoint;
-    if (deployment) config.azureOpenaiDeploymentObserve = deployment;
+    if (endpoint) _step1Config.azureOpenaiEndpoint = endpoint;
+    if (deployment) _step1Config.azureOpenaiDeploymentObserve = deployment;
+  }
+
+  // Save provider config immediately so the soul server can use it for chat
+  window.onboardingAPI.updateSoulConfig(_step1Config);
+
+  // Switch to step 2
+  document.getElementById("step1").classList.remove("active");
+  document.getElementById("step2").classList.add("active");
+
+  // Pet sends first message
+  sendFirstMessage();
+}
+
+// ── Chat helpers ──
+function renderText(text) {
+  const frag = document.createDocumentFragment();
+  const parts = text.split(/(\*[^*]+\*)/g);
+  for (const part of parts) {
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      const span = document.createElement("span");
+      span.className = "action-text";
+      span.textContent = part.slice(1, -1);
+      frag.appendChild(span);
+    } else if (part) {
+      frag.appendChild(document.createTextNode(part));
+    }
+  }
+  return frag;
+}
+
+function addMessage(text, role) {
+  removeTyping();
+  const msg = document.createElement("div");
+  msg.className = `msg ${role}`;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.appendChild(renderText(text));
+  msg.appendChild(bubble);
+  messagesEl.appendChild(msg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function showTyping() {
+  if (_typingEl) return;
+  const msg = document.createElement("div");
+  msg.className = "msg pet";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const dots = document.createElement("div");
+  dots.className = "typing-indicator";
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("div");
+    dot.className = "dot";
+    dots.appendChild(dot);
+  }
+  bubble.appendChild(dots);
+  msg.appendChild(bubble);
+  messagesEl.appendChild(msg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _typingEl = msg;
+}
+
+function removeTyping() {
+  if (_typingEl) { _typingEl.remove(); _typingEl = null; }
+}
+
+function setInputEnabled(enabled) {
+  chatInput.disabled = !enabled;
+  sendBtn.disabled = !enabled;
+}
+
+// ── Chat API ──
+async function sendFirstMessage() {
+  showTyping();
+  setInputEnabled(false);
+  try {
+    const result = await window.onboardingAPI.chat("", _history);
+    removeTyping();
+    if (result && result.reply) {
+      _history.push({ role: "assistant", content: result.reply });
+      addMessage(result.reply, "pet");
+    }
+  } catch (err) {
+    removeTyping();
+    addMessage("*waves shyly*", "pet");
+  }
+  setInputEnabled(true);
+  chatInput.focus();
+}
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  chatInput.value = "";
+  setInputEnabled(false);
+  addMessage(text, "user");
+  _history.push({ role: "user", content: text });
+
+  showTyping();
+
+  try {
+    const result = await window.onboardingAPI.chat(text, _history);
+    removeTyping();
+
+    if (result && result.reply) {
+      _history.push({ role: "assistant", content: result.reply });
+      addMessage(result.reply, "pet");
+    }
+
+    // Check if onboarding conversation is done
+    if (result && result.done) {
+      showCompletionCard(result);
+    }
+  } catch (err) {
+    removeTyping();
+    addMessage("*tilts head in confusion*", "pet");
+    setInputEnabled(true);
+  }
+
+  if (!document.getElementById("completionCard")) {
+    setInputEnabled(true);
+    chatInput.focus();
+  }
+}
+
+// ── Completion card ──
+function showCompletionCard(result) {
+  // Hide input area
+  document.getElementById("chatInputArea").style.display = "none";
+
+  const ARCHETYPE_EMOJI = {
+    playful: "🎭", curious: "🔍", caring: "💛", snarky: "😏", chill: "🧘",
+  };
+
+  const card = document.createElement("div");
+  card.className = "completion-card";
+  card.id = "completionCard";
+
+  const emoji = document.createElement("div");
+  emoji.className = "emoji";
+  emoji.textContent = ARCHETYPE_EMOJI[result.archetype] || "🦀";
+
+  const archName = document.createElement("div");
+  archName.className = "archetype-name";
+  archName.textContent = result.archetype
+    ? result.archetype.charAt(0).toUpperCase() + result.archetype.slice(1)
+    : "Your pet";
+
+  const reason = document.createElement("div");
+  reason.className = "reason";
+  reason.textContent = result.reason || "";
+
+  const greeting = document.createElement("div");
+  greeting.className = "greeting";
+  greeting.textContent = result.userName
+    ? `Nice to meet you, ${result.userName}!`
+    : "Nice to meet you!";
+
+  const startBtn = document.createElement("button");
+  startBtn.className = "btn btn-primary";
+  startBtn.textContent = "Start!";
+  startBtn.onclick = () => completeOnboarding(result);
+
+  card.appendChild(emoji);
+  card.appendChild(archName);
+  card.appendChild(reason);
+  card.appendChild(greeting);
+  card.appendChild(startBtn);
+  messagesEl.appendChild(card);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function completeOnboarding(result) {
+  const config = { ..._step1Config };
+
+  // Use pet name from result if provided, otherwise default
+  if (result.petName) {
+    config.petName = result.petName;
+  } else {
+    config.petName = "Clawd";
+  }
+
+  // Archetype from the conversation
+  if (result.archetype) {
+    config.archetype = result.archetype;
   }
 
   window.onboardingAPI.complete(config);
@@ -251,30 +597,54 @@ function skip() {
   window.onboardingAPI.skip();
 }
 
-// Load existing config if reconnecting
+// ── Enter to send ──
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendChat();
+  }
+});
+
+// ── Load existing config for pre-fill ──
 window.onboardingAPI.getSoulConfig().then((cfg) => {
   if (cfg && cfg.config) {
     const c = cfg.config;
-    if (c.petName && c.petName !== "Clawd") document.getElementById("petName").value = c.petName;
     if (c.language) document.getElementById("language").value = c.language;
     if (c.provider) providerSelect.value = c.provider;
     if (c.azureOpenaiEndpoint && c.azureOpenaiEndpoint !== "••••") {
       document.getElementById("azureEndpoint").value = c.azureOpenaiEndpoint;
     }
+    if (c.azureOpenaiDeploymentObserve && c.azureOpenaiDeploymentObserve !== "••••") {
+      document.getElementById("azureDeployment").value = c.azureOpenaiDeploymentObserve;
+    }
     providerSelect.dispatchEvent(new Event("change"));
+
+    // If API key already configured (masked as ••••), skip the key test
+    const keyField = document.getElementById("apiKey");
+    const hasExistingKey = (c.provider === "azure-openai" && c.azureOpenaiKey === "••••")
+      || (c.provider === "openai" && c.openaiKey === "••••")
+      || (c.provider === "gemini" && c.geminiKey === "••••")
+      || (c.provider === "claude" && c.claudeKey === "••••");
+
+    if (hasExistingKey) {
+      keyField.value = "••••••••";
+      keyField.placeholder = "Already configured";
+      _keyTested = true;
+      continueBtn.disabled = false;
+      statusEl.textContent = "API key already configured";
+      statusEl.style.color = "var(--success)";
+    }
   }
 }).catch(() => {});
 
-// Load i18n strings
+// ── Load i18n strings ──
 window.onboardingAPI.getStrings().then((s) => {
   if (!s) return;
   document.getElementById("title").textContent = s.onboardingTitle || "Welcome to Clawd!";
-  document.getElementById("nameLabel").textContent = s.onboardingNameLabel || "What should I call myself?";
   document.getElementById("langLabel").textContent = s.onboardingLangLabel || "Language";
   document.getElementById("providerLabel").textContent = s.onboardingProviderLabel || "AI Provider";
   document.getElementById("keyLabel").textContent = s.onboardingKeyLabel || "API Key";
   document.getElementById("testBtn").textContent = s.onboardingTestKey || "Test";
-  document.getElementById("doneBtn").textContent = s.onboardingDone || "Let's go!";
 }).catch(() => {});
 </script>
 </body>

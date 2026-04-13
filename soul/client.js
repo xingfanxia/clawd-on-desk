@@ -14,7 +14,8 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const { mapToAnimation } = require("./emotion-map");
+const crypto = require("crypto");
+const { mapToAnimation, moodIdleAnimation } = require("./emotion-map");
 
 const { execFileSync } = require("child_process");
 
@@ -95,6 +96,10 @@ let _proactiveTimer = null;
 let _lastForegroundApp = "";
 let _lastWindowTitle = "";
 let _observing = false; // prevent overlapping observations
+let _lastScreenHash = null; // for away detection
+let _sameScreenCount = 0; // consecutive identical screenshots
+const AWAY_THRESHOLD = 3; // 3 identical screenshots = user is away
+let _userAway = false;
 
 // ---------------------------------------------------------------------------
 // HTTP helpers (tiny, no deps)
@@ -374,6 +379,11 @@ async function doObservation(trigger = "periodic") {
     const screenshot = await captureScreen();
 
     if (trigger === "user-click") {
+      // User interaction resets away detection
+      _userAway = false;
+      _sameScreenCount = 0;
+      _lastScreenHash = null;
+
       // USER CLICKED PET — show thinking animation, then react to screen
       const thinkAnim = mapToAnimation("thinking", null, "speech-bubble");
       if (thinkAnim) ctx.applyState(thinkAnim.state, thinkAnim.svg);
@@ -401,7 +411,34 @@ async function doObservation(trigger = "periodic") {
       return;
     }
 
-    // PERIODIC — silent observation, feed into context
+    // PERIODIC — away detection: skip if screen hasn't changed
+    if (trigger === "periodic" && screenshot) {
+      // Sample from middle of image (header is always identical for same resolution/quality)
+      const mid = Math.floor(screenshot.length / 2);
+      const sample = screenshot.slice(mid - 2000, mid + 2000);
+      const hash = crypto.createHash("md5").update(sample).digest("hex");
+      if (hash === _lastScreenHash) {
+        _sameScreenCount++;
+        console.log(`Clawd Soul: same screen (${_sameScreenCount}/${AWAY_THRESHOLD})`);
+        if (_sameScreenCount >= AWAY_THRESHOLD) {
+          if (!_userAway) {
+            _userAway = true;
+            console.log("Clawd Soul: user appears away (screen unchanged), pausing observations");
+          }
+          return; // skip — don't waste API call
+        }
+      } else {
+        if (_userAway) {
+          _userAway = false;
+          console.log("Clawd Soul: user is back (screen changed)");
+          reportEvent("user-returned");
+        }
+        _sameScreenCount = 0;
+        _lastScreenHash = hash;
+      }
+    }
+
+    // Silent observation, feed into context
     const result = await soulRequest("POST", "/observe", {
       screenshot,
       foregroundApp: _lastForegroundApp,
@@ -409,7 +446,16 @@ async function doObservation(trigger = "periodic") {
       trigger,
     });
 
-    // Periodic observations are silent — no UI feedback
+    // Mood-driven idle animation — only when pet is idle (don't interrupt agent work)
+    if (result && result.ok) {
+      const currentState = ctx.getCurrentState();
+      if (currentState === "idle" || currentState === "sleeping") {
+        const moodAnim = moodIdleAnimation(result.mood);
+        if (moodAnim && Math.random() < 0.3) { // 30% chance — don't fidget every time
+          ctx.applyState(moodAnim.state, moodAnim.svg);
+        }
+      }
+    }
   } catch (err) {
     console.warn("Clawd Soul: observation failed:", err.message);
   } finally {
@@ -502,15 +548,16 @@ function reportEvent(eventName) {
 // ---------------------------------------------------------------------------
 
 function startLoops() {
-  // Silent observation (every 45s — feeds context, no bubbles)
+  // Silent observation (every 30s — feeds context, no bubbles; away detection saves API calls)
+  const observeInterval = 30000;
   _observeTimer = setInterval(() => {
     const state = ctx.getCurrentState();
     const skip = ["working", "thinking", "juggling", "sweeping", "carrying",
                   "sleeping", "dozing", "collapsing", "yawning", "waking"];
     if (!skip.includes(state)) {
-      doObservation("periodic"); // now silent — just adds to session context
+      doObservation("periodic");
     }
-  }, 45000);
+  }, observeInterval);
 
   // Heartbeat (every 5 min) — pet's inner voice, decides to speak or not
   _proactiveTimer = setInterval(() => {

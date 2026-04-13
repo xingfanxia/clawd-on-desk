@@ -722,6 +722,7 @@ const _menuCtx = {
   onSoulObserve: () => { if (_soul) _soul.doObservation("user-click"); },
   onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
   onOpenDiary: () => openDiaryViewer(),
+  onOpenOnboarding: () => openOnboarding(),
   onConnectRemote: () => openPairingDialog(),
   onDisconnectRemote: () => { if (_soul) { _soul.disconnectRemote(); } },
 };
@@ -1085,6 +1086,11 @@ function setupSoulIPC() {
   ipcMain.handle("soul-update-config", (_e, data) => soulPut("/config", data));
   ipcMain.handle("soul-test-key", (_e, provider, creds) => soulPost("/config/test-key", { provider, ...creds }));
 
+  // Onboarding chat (proxied to soul server)
+  ipcMain.handle("onboarding-chat", async (_, message, history) => {
+    return soulPost("/onboarding/chat", { message, history });
+  });
+
   // i18n strings for secondary windows
   ipcMain.handle("onboarding-strings", () => {
     const keys = ["onboardingTitle", "onboardingNameLabel", "onboardingLangLabel",
@@ -1359,6 +1365,7 @@ function createWindow() {
 
   // Single click on pet → soul screen read + response
   ipcMain.on("soul-observe", () => {
+    console.log(`[soul-observe IPC] _soul=${!!_soul} healthy=${_soul?.healthy}`);
     if (_soul && _soul.healthy) _soul.doObservation("user-click");
   });
 

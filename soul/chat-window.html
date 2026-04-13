@@ -234,11 +234,15 @@ function removeTyping() {
   if (typingEl) { typingEl.remove(); typingEl = null; }
 }
 
+let _sending = false;
+
 async function send() {
   const text = inputEl.value.trim();
-  if (!text) return;
+  if (!text || _sending) return;
 
+  _sending = true;
   inputEl.value = "";
+  inputEl.disabled = true;
   sendBtn.disabled = true;
   addMessage(text, "user");
   showTyping();
@@ -249,12 +253,14 @@ async function send() {
     if (result && result.ok && result.reply) {
       addMessage(result.reply, "pet");
     } else {
-      addMessage(result?.error || "...", "pet");
+      addMessage(result?.error || "*歪了歪头*", "pet");
     }
   } catch (err) {
     removeTyping();
     addMessage("*困惑地歪了歪头*", "pet");
   }
+  _sending = false;
+  inputEl.disabled = false;
   sendBtn.disabled = false;
   inputEl.focus();
 }

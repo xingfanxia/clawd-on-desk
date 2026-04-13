@@ -123,4 +123,39 @@ function mapToAnimation(context, mood, action) {
   return SOUL_ANIMATIONS.commentary;
 }
 
-module.exports = { mapToAnimation, SOUL_ANIMATIONS };
+/**
+ * Pick a mood-driven idle animation (for periodic ambient behavior).
+ * Returns an animation only when the mood is strong enough to warrant
+ * a visible reaction. Returns null most of the time — the pet shouldn't
+ * be constantly fidgeting.
+ *
+ * @param {Object} mood - { energy: 0-1, interest: 0-1, affection: 0-1 }
+ * @returns {{ state: string, svg: string|null, duration: number } | null}
+ */
+function moodIdleAnimation(mood) {
+  if (!mood) return null;
+
+  // Very sleepy — yawning/dozing look
+  if (mood.energy < 0.2) {
+    return { state: "idle", svg: "clawd-idle-look.svg", duration: 4000 };
+  }
+
+  // Very excited — brief happy fidget
+  if (mood.energy > 0.8 && mood.interest > 0.8) {
+    return { state: "attention", svg: null, duration: 2500 };
+  }
+
+  // Very affectionate — wants attention
+  if (mood.affection > 0.85) {
+    return { state: "notification", svg: null, duration: 2000 };
+  }
+
+  // Bored — looking around
+  if (mood.interest < 0.2 && mood.energy > 0.4) {
+    return { state: "idle", svg: "clawd-idle-look.svg", duration: 3000 };
+  }
+
+  return null;
+}
+
+module.exports = { mapToAnimation, moodIdleAnimation, SOUL_ANIMATIONS };

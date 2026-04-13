@@ -95,6 +95,7 @@ const i18n = {
     onboardingDone: "Let's go!",
     // Multi-device
     chatWithClawd: "Chat",
+    soulSetup: "Soul Setup…",
     connectRemoteSoul: "Connect to Remote Soul…",
     disconnectRemote: "Disconnect Remote Soul",
     enableLanMode: "Enable LAN Sharing",
@@ -191,6 +192,7 @@ const i18n = {
     onboardingDone: "开始吧！",
     // Multi-device
     chatWithClawd: "聊天",
+    soulSetup: "灵魂设置…",
     connectRemoteSoul: "连接远程灵魂…",
     disconnectRemote: "断开远程灵魂",
     enableLanMode: "启用局域网共享",
