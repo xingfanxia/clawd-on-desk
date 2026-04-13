@@ -324,6 +324,50 @@ opencode 是唯一**以 plugin 形式集成**的 agent，其他 agent 都是 hoo
 - PermissionRequest 必须用 HTTP hook（阻塞式），其他事件用 command hook（非阻塞式）
 - 极简模式动画期间（`miniTransitioning`），所有窗口定位路径（`always-on-top-changed`、`display-metrics-changed`、`display-removed` 等）都必须检查此标志，否则并发定位会导致 `setPosition()` 崩溃
 
+## Soul Engine 集成（v0.0.1）
+
+桌宠的 AI 大脑是独立的 `clawd-soul` 服务（HTTP :23456），由 Electron 自动启动。代码在 `soul/` 目录下。
+
+### soul/ 目录文件
+
+| 文件 | 职责 |
+|------|------|
+| `soul/client.js` | Soul 服务器生命周期管理：发现/启动、屏幕截图、观察循环、聊天转发、心跳轮询 |
+| `soul/speech-bubble.js` + `.html` | 对话气泡（透明 BrowserWindow，可点击→打开聊天窗口） |
+| `soul/chat-window.js` + `.html` | 微信风格聊天窗口（持久历史、输入框、关闭按钮） |
+| `soul/emotion-map.js` | 情绪→动画映射（兴奋→happy、思考→thinking 等） |
+| `soul/onboarding.html` | 首次启动引导（名字、语言、性格原型、AI 服务商、API 密钥） |
+| `soul/diary-viewer.html` | 日记查看窗口 |
+| `soul/pairing.html` | 多设备配对界面（连接 + 共享两个标签） |
+| `soul/preload-*.js` | 各窗口的 contextBridge |
+
+### 交互流程
+
+- 单击宠物 → `soul-observe` IPC → `client.js` 截屏 → POST /react → 思考动画 → 气泡回复
+- 点击气泡 → `speech-open-chat` IPC → 打开聊天窗口
+- 右键菜单 → 聊天 / 你看到了什么 / 查看日记 / 连接远程灵魂
+- 每 45s 静默观察（POST /observe，不显示气泡）
+- 每 5min 心跳（GET /proactive，宠物自己决定说不说话）
+
+### 数据存储（~/.clawd/）
+
+| 文件 | 内容 | 可导出？ |
+|------|------|---------|
+| `config.json` | API 密钥、服务商、宠物名 | 否（含密钥） |
+| `soul.json` | 性格原型、情绪、信任度、语义记忆、进化特征 | 是 |
+| `memory.db` | 情景记忆、日记（SQLite + FTS5 + sqlite-vec） | 是 |
+| `chat-history.jsonl` | 持久对话记录 | 是 |
+| `chat-summary.json` | 压缩的旧对话摘要 | 是 |
+| `soul-runtime.json` | 运行中服务器的端口+PID（临时） | 否 |
+
+### 注意事项
+
+- Soul 服务器用系统 `node` 启动（不是 Electron 的），因为 better-sqlite3 是原生模块
+- `findNodeBinary()` 会搜索 asdf/nvm/homebrew 路径
+- 截屏分辨率 1920×1080 JPEG q85，vision API 用 `detail: 'auto'`
+- 对话在 500k token 时自动压缩（AI 总结旧消息，保留最近 50 条）
+- 多设备通过 LAN 模式（0.0.0.0 绑定 + bearer auth），不需要云服务
+
 ## 已知限制
 
 - **hitWin 点击会抢焦点**：输入窗口 `focusable: true` 是修复拖拽 bug 的关键（去掉 WS_EX_NOACTIVATE），但副作用是点击桌宠会短暂抢走编辑器焦点。目前认为可接受，暂不处理。
