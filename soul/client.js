@@ -605,13 +605,17 @@ function startLoops() {
     }
   }, observeInterval);
 
-  // Heartbeat (every 5 min) — pet's inner voice, decides to speak or not
+  // Heartbeat — pet's inner voice, decides to speak or not
+  // v0.0.4: every 20min (was 5min). Also skipped when user is away.
   _proactiveTimer = setInterval(() => {
-    pollProactive(); // calls GET /proactive which runs heartbeat()
-  }, 5 * 60 * 1000); // 5 minutes
+    if (_userAway) return;  // don't wake the neighbors
+    pollProactive();
+  }, 20 * 60 * 1000);
 
-  // First heartbeat after 90 seconds
-  setTimeout(() => pollProactive(), 90 * 1000);
+  // First heartbeat after 2 minutes (was 90s) — let the pet settle in
+  setTimeout(() => {
+    if (!_userAway) pollProactive();
+  }, 2 * 60 * 1000);
 
   // Report that the user is here
   reportEvent("user-returned");
