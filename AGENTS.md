@@ -56,6 +56,7 @@ Copilot CLI 是唯一仍需手动配置 hooks 的受支持 agent；见 `docs/gui
 - `docs/guides/setup-guide.md`：安装、远程 SSH、各 agent 接入
 - `docs/guides/known-limitations.md`：用户向已知限制
 - `docs/guides/codex-wsl-clarification.md`：Codex / WSL 路径与 Node 说明
+- `docs/project/soul-engine.md`：clawd-soul AI brain 集成（屏幕观察、对话、日记、多设备配对）
 
 ## Runtime Summary
 

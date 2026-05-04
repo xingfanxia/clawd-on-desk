@@ -151,6 +151,9 @@ const SCHEMA = {
     defaultFactory: () => ({}),
     normalize: normalizeSessionAliases,
   },
+  // Soul engine: tracks whether user has gone through the onboarding wizard
+  // (gates first-launch onboarding window in main.js whenReady).
+  hasCompletedOnboarding: { type: "boolean", default: false },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));

@@ -325,6 +325,7 @@ const updateRegistry = {
   ),
   allowEdgePinning: requireBoolean("allowEdgePinning"),
   keepSizeAcrossDisplays: requireBoolean("keepSizeAcrossDisplays"),
+  hasCompletedOnboarding: requireBoolean("hasCompletedOnboarding"),
 
   // ── System-backed prefs (object-form: validate + effect pre-commit gate) ──
   //

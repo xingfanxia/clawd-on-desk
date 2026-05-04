@@ -350,6 +350,55 @@ module.exports = function initMenu(ctx) {
         },
       );
     }
+    // Soul engine items
+    if (ctx.soulHealthy) {
+      const soulItems = [
+        { type: "separator" },
+        {
+          label: t("chatWithClawd"),
+          click: () => { if (ctx.onOpenChat) ctx.onOpenChat(); },
+        },
+        {
+          label: t("whatDoYouSee"),
+          click: () => { if (ctx.onSoulObserve) ctx.onSoulObserve(); },
+        },
+        {
+          label: t("readDiary"),
+          click: () => { if (ctx.onOpenDiary) ctx.onOpenDiary(); },
+        },
+      ];
+      // Multi-device options
+      if (ctx.soulIsRemote) {
+        soulItems.push({
+          label: t("disconnectRemote"),
+          click: () => { if (ctx.onDisconnectRemote) ctx.onDisconnectRemote(); },
+        });
+      } else {
+        soulItems.push({
+          label: t("connectRemoteSoul"),
+          click: () => { if (ctx.onConnectRemote) ctx.onConnectRemote(); },
+        });
+      }
+      soulItems.push({
+        label: t("soulSetup"),
+        click: () => { if (ctx.onOpenOnboarding) ctx.onOpenOnboarding(); },
+      });
+      template.push(...soulItems);
+    } else {
+      // Soul not connected — show setup + connect options
+      template.push(
+        { type: "separator" },
+        {
+          label: t("soulSetup"),
+          click: () => { if (ctx.onOpenOnboarding) ctx.onOpenOnboarding(); },
+        },
+        {
+          label: t("connectRemoteSoul"),
+          click: () => { if (ctx.onConnectRemote) ctx.onConnectRemote(); },
+        },
+      );
+    }
+
     template.push(
       { type: "separator" },
       {

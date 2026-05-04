@@ -404,6 +404,11 @@ function stopMonitorForAgent(agentId) {
   if (agentId === "codex" && _codexMonitor) _codexMonitor.stop();
 }
 
+// Soul engine state — the AI brain (clawd-soul service on :23456)
+let _speechBubble = null;          // Soul speech bubble window
+let _soul = null;                  // Soul HTTP client + lifecycle manager
+let _chatWindow = null;            // Soul chat window
+
 // ── Theme loader ──
 const themeLoader = require("./theme-loader");
 const { isPlainObject: _isPlainObject } = themeLoader;
@@ -966,6 +971,7 @@ const {
 function repositionFloatingBubbles() {
   if (pendingPermissions.length) repositionBubbles();
   repositionUpdateBubble();
+  if (_speechBubble) _speechBubble.reposition();
 }
 
 // ── macOS cross-Space visibility helper ──
@@ -1188,6 +1194,8 @@ const _tickCtx = {
   getObjRect,
   getHitRectScreen,
   getAssetPointerPayload,
+  // Soul engine: tick.js polls foreground app every 5s and pushes context to soul
+  get soul() { return _soul; },
 };
 const _tick = require("./tick")(_tickCtx);
 requestFastTick = (maxDelay) => _tick.scheduleSoon(maxDelay);
@@ -1471,6 +1479,15 @@ const _menuCtx = {
   getActiveThemeCapabilities: () => activeTheme ? activeTheme._capabilities : null,
   ensureUserThemesDir: () => themeLoader.ensureUserThemesDir(),
   openSettingsWindow: () => openSettingsWindow(),
+  // Soul engine
+  get soulHealthy() { return _soul && _soul.healthy; },
+  get soulIsRemote() { return _soul && _soul.isRemote; },
+  onSoulObserve: () => { if (_soul) _soul.doObservation("user-click"); },
+  onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
+  onOpenDiary: () => openDiaryViewer(),
+  onOpenOnboarding: () => openOnboarding(),
+  onConnectRemote: () => openPairingDialog(),
+  onDisconnectRemote: () => { if (_soul) { _soul.disconnectRemote(); } },
 };
 const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
@@ -3475,6 +3492,244 @@ function openSettingsWindow() {
   });
 }
 
+// ── Diary viewer window ──
+let diaryWindow = null;
+
+function openDiaryViewer() {
+  if (diaryWindow && !diaryWindow.isDestroyed()) {
+    if (diaryWindow.isMinimized()) diaryWindow.restore();
+    diaryWindow.show();
+    diaryWindow.focus();
+    return;
+  }
+  diaryWindow = new BrowserWindow({
+    width: 480, height: 600,
+    minWidth: 360, minHeight: 400,
+    show: false, frame: true, transparent: false,
+    resizable: true, skipTaskbar: false, alwaysOnTop: false,
+    title: t("diaryTitle"),
+    backgroundColor: "#fffbf5",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-diary.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  diaryWindow.setMenuBarVisibility(false);
+  diaryWindow.loadFile(path.join(__dirname, "..", "soul", "diary-viewer.html"));
+  diaryWindow.once("ready-to-show", () => { diaryWindow.show(); diaryWindow.focus(); });
+  diaryWindow.on("closed", () => { diaryWindow = null; });
+}
+
+// ── Onboarding window ──
+let onboardingWindow = null;
+
+function openOnboarding() {
+  if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+    onboardingWindow.show();
+    onboardingWindow.focus();
+    return;
+  }
+  onboardingWindow = new BrowserWindow({
+    width: 480, height: 580,
+    show: false, frame: true, transparent: false,
+    resizable: false, minimizable: false,
+    skipTaskbar: false, alwaysOnTop: false,
+    title: t("onboardingTitle"),
+    backgroundColor: "#fafafa",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-onboarding.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  onboardingWindow.setMenuBarVisibility(false);
+  onboardingWindow.loadFile(path.join(__dirname, "..", "soul", "onboarding.html"));
+  onboardingWindow.once("ready-to-show", () => { onboardingWindow.show(); onboardingWindow.focus(); });
+  onboardingWindow.on("closed", () => { onboardingWindow = null; });
+}
+
+// ── Pairing dialog (simple prompt-based) ──
+function openPairingDialog() {
+  const { dialog } = require("electron");
+  // Step 1: Ask for host IP + port
+  dialog.showMessageBox({
+    type: "question",
+    title: t("connectRemoteSoul"),
+    message: "Enter the remote soul server address:",
+    detail: "Format: IP:PORT (e.g., 192.168.1.100:23456)\nThe host must have LAN sharing enabled and a pairing code ready.",
+    buttons: ["Connect", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    // Electron doesn't have input dialogs built-in, so we'll use two prompts
+  }).then((result) => {
+    if (result.response === 1) return;
+    // Use a BrowserWindow-based input since Electron has no native input dialog
+    promptForPairing();
+  });
+}
+
+let pairingInputWindow = null;
+
+function promptForPairing() {
+  if (pairingInputWindow && !pairingInputWindow.isDestroyed()) {
+    pairingInputWindow.focus();
+    return;
+  }
+  pairingInputWindow = new BrowserWindow({
+    width: 400, height: 300,
+    show: false, frame: true, transparent: false,
+    resizable: false, minimizable: false,
+    title: t("connectRemoteSoul"),
+    webPreferences: {
+      preload: path.join(__dirname, "..", "soul", "preload-pairing.js"),
+      nodeIntegration: false, contextIsolation: true,
+    },
+  });
+  pairingInputWindow.setMenuBarVisibility(false);
+  pairingInputWindow.loadFile(path.join(__dirname, "..", "soul", "pairing.html"));
+  pairingInputWindow.once("ready-to-show", () => { pairingInputWindow.show(); pairingInputWindow.focus(); });
+  pairingInputWindow.on("closed", () => { pairingInputWindow = null; });
+}
+
+// ── Soul IPC handlers ──
+function setupSoulIPC() {
+  const http = require("http");
+
+  function soulGet(urlPath) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      http.get(`http://127.0.0.1:${_soul.port}${urlPath}`, { timeout: 5000 }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      }).on("error", () => resolve(null));
+    });
+  }
+
+  function soulPost(urlPath, body) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      const data = JSON.stringify(body);
+      const req = http.request({
+        hostname: "127.0.0.1", port: _soul.port,
+        path: urlPath, method: body ? "POST" : "GET",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) },
+        timeout: 60000,
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      });
+      req.on("error", () => resolve(null));
+      req.write(data);
+      req.end();
+    });
+  }
+
+  function soulPut(urlPath, body) {
+    return new Promise((resolve, reject) => {
+      if (!_soul || !_soul.port) { resolve(null); return; }
+      const data = JSON.stringify(body);
+      const req = http.request({
+        hostname: "127.0.0.1", port: _soul.port,
+        path: urlPath, method: "PUT",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) },
+        timeout: 5000,
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch { resolve(null); }
+        });
+      });
+      req.on("error", () => resolve(null));
+      req.write(data);
+      req.end();
+    });
+  }
+
+  // Diary
+  ipcMain.handle("soul-diary-list", (_e, limit) => soulGet(`/diary/list?limit=${limit || 14}`));
+  ipcMain.handle("soul-diary-get", (_e, date) => soulGet(`/diary?date=${date}`));
+  ipcMain.handle("soul-diary-generate", () => soulPost("/diary/generate", {}));
+
+  // Config
+  ipcMain.handle("soul-get-config", () => soulGet("/config"));
+  ipcMain.handle("soul-update-config", (_e, data) => soulPut("/config", data));
+  ipcMain.handle("soul-test-key", (_e, provider, creds) => soulPost("/config/test-key", { provider, ...creds }));
+
+  // Onboarding chat (proxied to soul server)
+  ipcMain.handle("onboarding-chat", async (_, message, history) => {
+    return soulPost("/onboarding/chat", { message, history });
+  });
+
+  // i18n strings for secondary windows
+  ipcMain.handle("onboarding-strings", () => {
+    const keys = ["onboardingTitle", "onboardingNameLabel", "onboardingLangLabel",
+      "onboardingProviderLabel", "onboardingKeyLabel", "onboardingTestKey",
+      "onboardingDone", "onboardingSkip"];
+    const result = {};
+    for (const k of keys) result[k] = t(k);
+    return result;
+  });
+  ipcMain.handle("diary-strings", () => ({
+    diaryTitle: t("diaryTitle"),
+    diaryNoEntries: t("diaryNoEntries"),
+    generateDiary: t("generateDiary"),
+  }));
+
+  // Onboarding complete/skip
+  ipcMain.on("onboarding-complete", (_e, config) => {
+    // Save config to soul server
+    if (config) {
+      // Save archetype separately (it's a soul property, not config)
+      if (config.archetype) {
+        soulPut("/soul/archetype", { archetype: config.archetype });
+        delete config.archetype;
+      }
+      soulPut("/config", config);
+    }
+    // Update language in Electron prefs if changed
+    if (config && config.language && config.language !== lang) {
+      _settingsController.applyUpdate("lang", config.language);
+    }
+    _settingsController.applyUpdate("hasCompletedOnboarding", true);
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      onboardingWindow.close();
+    }
+  });
+  ipcMain.on("onboarding-skip", () => {
+    _settingsController.applyUpdate("hasCompletedOnboarding", true);
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      onboardingWindow.close();
+    }
+  });
+
+  // Pairing
+  ipcMain.handle("soul-pair", async (_e, host, port, code) => {
+    if (!_soul) return { ok: false, error: "Soul client not initialized" };
+    const deviceName = require("os").hostname();
+    return _soul.pairWithRemote(host, parseInt(port, 10), code, deviceName);
+  });
+
+  ipcMain.on("pairing-cancel", () => {
+    if (pairingInputWindow && !pairingInputWindow.isDestroyed()) {
+      pairingInputWindow.close();
+    }
+  });
+
+  // LAN mode control (for host machine)
+  ipcMain.handle("soul-enable-lan", () => soulPost("/pair/enable-lan", {}));
+  ipcMain.handle("soul-generate-pairing-code", () => soulPost("/pair/generate", {}));
+  ipcMain.handle("soul-pair-status", () => soulGet("/pair/status"));
+}
+
 function createWindow() {
   // Read everything from the settings controller. The mirror caches above
   // (lang/showTray/etc.) were already initialized at module-load time, so
@@ -3736,6 +3991,12 @@ function createWindow() {
   ipcMain.on("end-drag-reaction", () => sendToRenderer("end-drag-reaction"));
   ipcMain.on("play-click-reaction", (_, svg, duration) => {
     sendToRenderer("play-click-reaction", svg, duration);
+  });
+
+  // Single click on pet → soul screen read + response
+  ipcMain.on("soul-observe", () => {
+    console.log(`[soul-observe IPC] _soul=${!!_soul} healthy=${_soul?.healthy}`);
+    if (_soul && _soul.healthy) _soul.doObservation("user-click");
   });
 
   ipcMain.on("drag-end", () => {
@@ -4264,6 +4525,54 @@ if (!gotTheLock) {
 
     // Auto-updater: setup event handlers (user triggers check via tray menu)
     setupAutoUpdater();
+
+    // ── Soul engine — AI brain for screen observation + chat + diary ──
+    try {
+      // Chat window (must be created before speech bubble so it can be referenced)
+      const initChatWindow = require("../soul/chat-window");
+      _chatWindow = initChatWindow({
+        get win() { return win; },
+        get soul() { return _soul; },
+        getNearestWorkArea,
+      });
+
+      const initSpeechBubble = require("../soul/speech-bubble");
+      _speechBubble = initSpeechBubble({
+        get win() { return win; },
+        get petHidden() { return petHidden; },
+        getNearestWorkArea,
+        getHitRectScreen: (bounds) => getHitRectScreen(bounds),
+        onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
+      });
+
+      const initSoulClient = require("../soul/client");
+      _soul = initSoulClient({
+        get win() { return win; },
+        get petHidden() { return petHidden; },
+        speechBubble: _speechBubble,
+        chatWindow: _chatWindow,
+        applyState: (state, svg) => applyState(state, svg || null),
+        resolveDisplayState,
+        getCurrentState: () => _state.getCurrentState(),
+      });
+      _soul.init().then((ok) => {
+        if (ok) console.log("Clawd: Soul engine connected");
+        else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
+      }).catch((err) => {
+        console.warn("Clawd: Soul init failed:", err.message);
+      });
+    } catch (err) {
+      console.warn("Clawd: Soul engine not loaded:", err.message);
+    }
+
+    // Setup Soul IPC handlers (diary, config, onboarding)
+    setupSoulIPC();
+
+    // Show onboarding wizard on first launch
+    if (!_settingsController.get("hasCompletedOnboarding")) {
+      // Delay slightly so the pet window is visible first
+      setTimeout(() => openOnboarding(), 2000);
+    }
   });
 
   app.on("before-quit", () => {
@@ -4284,6 +4593,12 @@ if (!gotTheLock) {
     _focus.cleanup();
     _bumpAnimationPreviewPosterGeneration();
     _destroyAnimationPreviewPosterWindow();
+    // Soul engine cleanup
+    if (_speechBubble) _speechBubble.cleanup();
+    if (_chatWindow) _chatWindow.close();
+    if (_soul) _soul.shutdown();
+    if (diaryWindow && !diaryWindow.isDestroyed()) diaryWindow.destroy();
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.destroy();
     if (hitWin && !hitWin.isDestroyed()) hitWin.destroy();
   });
 

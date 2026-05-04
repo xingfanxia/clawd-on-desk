@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Clawd's Diary</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #fffbf5; --card-bg: #fff; --text: #18181b; --text-dim: #71717a;
+  --border: #e4e4e7; --accent: #f97316;
+  --entry-bg: #fff8f0; --date-color: #a16207;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0a09; --card-bg: #1c1917; --text: #f5f5f4; --text-dim: #a8a29e;
+    --border: #292524; --entry-bg: #1c1917; --date-color: #fbbf24;
+  }
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  padding: 24px; min-height: 100vh;
+}
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.header h1 {
+  font-size: 20px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.header .crab { font-size: 24px; }
+.btn {
+  padding: 6px 14px; font-size: 13px; font-weight: 500;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card-bg); color: var(--text); cursor: pointer;
+  transition: all 0.2s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.entries { display: flex; flex-direction: column; gap: 16px; }
+.entry {
+  background: var(--entry-bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+}
+.entry-date {
+  font-size: 12px; font-weight: 600; color: var(--date-color);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.entry-mood {
+  font-size: 11px; color: var(--text-dim); margin-bottom: 8px;
+}
+.entry-content {
+  font-size: 14px; line-height: 1.6;
+  white-space: pre-wrap;
+}
+.empty {
+  text-align: center; color: var(--text-dim);
+  padding: 48px 0; font-size: 15px;
+}
+.empty .big-crab { font-size: 48px; margin-bottom: 12px; }
+.loading {
+  text-align: center; color: var(--text-dim);
+  padding: 24px 0; font-size: 13px;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1><span class="crab">🦀</span> <span id="title">Clawd's Diary</span></h1>
+  <button class="btn" id="generateBtn" onclick="generateDiary()">Write Today's Diary</button>
+</div>
+<div class="entries" id="entries">
+  <div class="loading">Loading diary entries...</div>
+</div>
+
+<script>
+const entriesEl = document.getElementById("entries");
+const generateBtn = document.getElementById("generateBtn");
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  const options = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
+  return d.toLocaleDateString(undefined, options);
+}
+
+function moodEmoji(energy, interest, affection) {
+  const parts = [];
+  if (energy > 0.7) parts.push("energetic");
+  else if (energy < 0.3) parts.push("sleepy");
+  if (interest > 0.7) parts.push("curious");
+  if (affection > 0.6) parts.push("warm");
+  return parts.length ? parts.join(", ") : "calm";
+}
+
+function renderEntries(entries) {
+  if (!entries || entries.length === 0) {
+    entriesEl.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    const crab = document.createElement("div");
+    crab.className = "big-crab";
+    crab.textContent = "🦀";
+    const msg = document.createElement("div");
+    msg.textContent = "No diary entries yet. Click 'Write Today's Diary' to get started!";
+    empty.appendChild(crab);
+    empty.appendChild(msg);
+    entriesEl.appendChild(empty);
+    return;
+  }
+
+  entriesEl.textContent = "";
+  for (const e of entries) {
+    const entry = document.createElement("div");
+    entry.className = "entry";
+
+    const date = document.createElement("div");
+    date.className = "entry-date";
+    date.textContent = formatDate(e.date);
+    entry.appendChild(date);
+
+    if (e.mood_energy != null) {
+      const mood = document.createElement("div");
+      mood.className = "entry-mood";
+      mood.textContent = "Mood: " + moodEmoji(e.mood_energy, e.mood_interest, e.mood_affection);
+      entry.appendChild(mood);
+    }
+
+    const content = document.createElement("div");
+    content.className = "entry-content";
+    content.textContent = e.content;
+    entry.appendChild(content);
+
+    entriesEl.appendChild(entry);
+  }
+}
+
+async function loadEntries() {
+  try {
+    const result = await window.diaryAPI.getEntries(14);
+    renderEntries(result && result.entries ? result.entries : []);
+  } catch (err) {
+    entriesEl.textContent = "";
+    const errDiv = document.createElement("div");
+    errDiv.className = "empty";
+    errDiv.textContent = "Could not load diary: " + err.message;
+    entriesEl.appendChild(errDiv);
+  }
+}
+
+async function generateDiary() {
+  generateBtn.disabled = true;
+  generateBtn.textContent = "Writing...";
+  try {
+    const result = await window.diaryAPI.generate();
+    if (result && result.ok) {
+      await loadEntries();
+    } else {
+      const msg = result && result.error ? result.error : "Failed to generate diary";
+      alert(msg);
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+  generateBtn.disabled = false;
+  generateBtn.textContent = "Write Today's Diary";
+}
+
+// Load i18n
+window.diaryAPI.getStrings().then((s) => {
+  if (!s) return;
+  document.getElementById("title").textContent = s.diaryTitle || "Clawd's Diary";
+  generateBtn.textContent = s.generateDiary || "Write Today's Diary";
+}).catch(() => {});
+
+// Initial load
+loadEntries();
+</script>
+</body>
+</html>

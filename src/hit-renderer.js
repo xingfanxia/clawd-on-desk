@@ -141,8 +141,10 @@ function handleClick(clientX) {
   }
   if (isReacting || isDragReacting) return;
 
-  // Non-idle: focus terminal, no reaction
-  if (currentState !== "idle") {
+  // Only block clicks during active agent work states (working/thinking/etc.)
+  // Allow clicks in idle + soul-driven states (attention, notification, etc.)
+  const blockStates = ["working", "thinking", "juggling", "sweeping", "carrying", "building", "conducting"];
+  if (blockStates.includes(currentState)) {
     window.hitAPI.focusTerminal();
     return;
   }
@@ -186,6 +188,8 @@ function handleClick(clientX) {
       clickTimer = null;
       clickCount = 0;
       firstClickDir = null;
+      // Single click — trigger soul screen read
+      window.hitAPI.soulObserve();
     }, CLICK_WINDOW_MS);
   }
 }
