@@ -35,6 +35,12 @@ docs/**
 !docs/project/agent-runtime-architecture.md
 !docs/project/theme-state-ui.md
 !docs/project/soul-engine.md
+!docs/project/phase-2.1-archetype-variants.md
+!docs/project/todo-cat-sprites.md
+!docs/project/pawpal-integration-ideas.md
+!docs/project/2026-05-07-pawpal-integration-spec.md
+!docs/project/custom-cat-pets-design.md
+!docs/project/custom-cat-pets-plan.md
 !docs/cloudling/
 !docs/cloudling/specs/
 !docs/cloudling/specs/core-states.md
