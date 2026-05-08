@@ -1,6 +1,11 @@
 # Soul Engine Integration
 
-Clawd 的 AI 大脑是独立的 `clawd-soul` 服务（HTTP :23456），由 Electron 自动启动。
+Clawd 的 AI 大脑是独立的 `clawd-soul` 服务（HTTP :23456），由 Electron 在
+`prefs.simpleMode === false`（advanced 模式）时自动启动。**Simple Mode 默认 true**
+（fork 全新安装），此时 `main.js` 中的 soul 启动块整体被 gate 掉——chat-window /
+speech-bubble / soul-client / soul IPC / onboarding 全部不挂载。从 Settings →
+General → AI Features 切换 simpleMode 后重启 Clawd 即可拉起本节描述的所有子系统。
+
 桌宠（body）和灵魂（brain）通过 HTTP 解耦：body 负责渲染、动画、hooks；soul 负责
 人格、记忆、视觉、对话。代码在 `soul/` 目录下。
 

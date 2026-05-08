@@ -42,6 +42,8 @@ bash test-oneshot-gate.sh [state] [seconds]
 ```
 
 正常启动时，Clawd 只会为已启用的 agent 自动同步 Claude / Codex / Gemini / Cursor / CodeBuddy / Kiro / Kimi hooks 和 opencode plugin。禁用 agent 会跳过启动同步并屏蔽事件/权限入口，但不会卸载用户已有 hooks / plugins；从 Settings 重新启用时会对该 agent 做一次 integration sync。手动安装命令主要用于调试、重装或远程部署。
+
+**Simple Mode 总闸**：fork-only 的 `prefs.simpleMode`（默认 `true`，全新安装走默认路径）会让 `src/server.js:syncEnabledStartupIntegrations` 提前 return，**绕过所有 7 个 agent 的启动同步**（Claude / Gemini / Codex / Cursor / CodeBuddy / Kiro / Kimi / opencode），同时让 `src/main.js` 跳过 soul 子系统启动和 onboarding 弹窗。`prefs.js` v1→v2 迁移用 `hasCompletedOnboarding === true || ~/.clawd/{soul.json,config.json}` 兜底，老用户升级会自动落到 advanced 模式（`simpleMode = false`）。Settings → General → AI Features 提供单 toggle 让用户切换；切换后需重启 Clawd 才能生效。
 Copilot CLI 是唯一仍需手动配置 hooks 的受支持 agent；见 `docs/guides/copilot-setup.md`。
 
 ## Read These Docs
@@ -149,6 +151,7 @@ Copilot CLI 是唯一仍需手动配置 hooks 的受支持 agent；见 `docs/gui
 - Windows 前台窗口锁依赖 ALT trick + `koffi` FFI；相关回归通常不是单点逻辑 bug
 - `~/.claude/settings.json` 的 hook 恢复 watcher 必须盯目录而不是文件；原子替换会让文件级 watch 在 Windows 上静默失效
 - Claude watcher 必须同时受 `manageClaudeHooksAutomatically` 和 `claude-code.enabled` 保护；不要让禁用 Claude Code 后的 watcher 重新写回 hooks
+- 调试"hooks 没注册 / soul 没启动 / 没弹 onboarding"前，先检查 `prefs.simpleMode`。`true` 时三件事**全部不发生**——这不是 bug，是 fork 默认行为。`~/Library/Application Support/clawd-on-desk/clawd-prefs.json`（macOS）或对应 userData 目录的 `clawd-prefs.json` 里能看到值；从 Settings → General → AI Features 切换
 - opencode 的 `permission.ask` hook 目前不可用，权限只能走 event hook + bridge
 - Codex CLI official hooks 已接入；JSONL 轮询仍是 fallback，用于 hook 不可用、hook 未覆盖事件（如 WebSearch / compaction / abort）和历史兼容。Windows command 必须用 PowerShell `& "node" ...` 格式，裸 `"node" "hook.js"` 会 exit 1
 - Kiro 没有 global hooks，只能注入到 `~/.kiro/agents/*.json`

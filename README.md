@@ -137,7 +137,7 @@ For normal use, download the latest prebuilt installer from **[GitHub Releases](
 - **macOS**: `.dmg`
 - **Linux**: `.AppImage` or `.deb`
 
-Launch Clawd after installing it; supported agent hooks/plugins are synced automatically on startup.
+Launch Clawd after installing it. **Fresh installs start in Simple Mode** — Clawd is just a desktop pet; no agent hooks, no AI brain, no onboarding wizard. To turn the AI features on (agent hook auto-sync + Soul brain + chat + screen observation + diary + persistent memory), open `Settings…` → `General` → `AI Features` and toggle it on, then restart Clawd. Existing users who already engaged AI features (completed onboarding, or have `~/.clawd/{soul.json,config.json}` on disk) keep advanced mode on upgrade — the migration heuristic preserves your setup.
 
 Run from source only if you're contributing, testing unreleased code, or debugging integrations. Source installs download Electron/build tooling and can create a large `node_modules` tree.
 
@@ -149,11 +149,11 @@ cd clawd-on-desk
 # Install dependencies
 npm install
 
-# Start Clawd (auto-registers Claude Code hooks on launch)
+# Start Clawd — Simple Mode by default; enable AI features in Settings.
 npm start
 ```
 
-**Claude Code** and **Codex CLI** work out of the box with auto-registered hooks. **Gemini CLI**, **Cursor Agent**, **CodeBuddy**, **Kiro CLI**, **Kimi Code CLI (Kimi-CLI)**, and **opencode** auto-register when Clawd launches (if they're installed). **Copilot CLI** still needs one-time hook setup. Also covers remote SSH, WSL, and platform-specific notes (macOS / Linux): **[docs/guides/setup-guide.md](docs/guides/setup-guide.md)**
+When `AI Features` is on, **Claude Code** and **Codex CLI** work out of the box with auto-registered hooks. **Gemini CLI**, **Cursor Agent**, **CodeBuddy**, **Kiro CLI**, **Kimi Code CLI (Kimi-CLI)**, and **opencode** auto-register when Clawd launches (if they're installed). **Copilot CLI** still needs one-time hook setup. Also covers remote SSH, WSL, and platform-specific notes (macOS / Linux): **[docs/guides/setup-guide.md](docs/guides/setup-guide.md)**
 
 For the official `Codex + WSL` status, Clawd's current implementation boundary, and why this is easy to misread, see: **[docs/guides/codex-wsl-clarification.md](docs/guides/codex-wsl-clarification.md)**
 
