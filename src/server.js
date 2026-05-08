@@ -784,6 +784,10 @@ function repairRuntimeStatus() {
 }
 
 function syncEnabledStartupIntegrations() {
+  // Pure-pet mode: skip all agent hook auto-sync. The user can flip
+  // `simpleMode` off in Settings → General to opt into AI features; the
+  // existing per-agent `enabled` flags then take effect on next restart.
+  if (ctx.simpleMode === true) return;
   if (shouldManageClaudeHooks() && isAgentEnabled("claude-code")) {
     syncClawdHooks();
     startClaudeSettingsWatcher();

@@ -1262,6 +1262,7 @@ getSessionHudWindow = _sessionHud.getWindow;
 // ── HTTP server — delegated to src/server.js ──
 const _serverCtx = {
   get manageClaudeHooksAutomatically() { return manageClaudeHooksAutomatically; },
+  get simpleMode() { return _settingsController.get("simpleMode"); },
   get autoStartWithClaude() { return autoStartWithClaude; },
   get doNotDisturb() { return doNotDisturb; },
   shouldDropForDnd: () => _state.shouldDropForDnd ? _state.shouldDropForDnd() : doNotDisturb,
@@ -4527,51 +4528,57 @@ if (!gotTheLock) {
     setupAutoUpdater();
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
-    try {
-      // Chat window (must be created before speech bubble so it can be referenced)
-      const initChatWindow = require("../soul/chat-window");
-      _chatWindow = initChatWindow({
-        get win() { return win; },
-        get soul() { return _soul; },
-        getNearestWorkArea,
-      });
+    // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
+    // loop, no chat window, no onboarding wizard. Toggling simpleMode off in
+    // Settings → General requires an app restart to spin the soul up.
+    if (!_settingsController.get("simpleMode")) {
+      try {
+        // Chat window (must be created before speech bubble so it can be referenced)
+        const initChatWindow = require("../soul/chat-window");
+        _chatWindow = initChatWindow({
+          get win() { return win; },
+          get soul() { return _soul; },
+          getNearestWorkArea,
+        });
 
-      const initSpeechBubble = require("../soul/speech-bubble");
-      _speechBubble = initSpeechBubble({
-        get win() { return win; },
-        get petHidden() { return petHidden; },
-        getNearestWorkArea,
-        getHitRectScreen: (bounds) => getHitRectScreen(bounds),
-        onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
-      });
+        const initSpeechBubble = require("../soul/speech-bubble");
+        _speechBubble = initSpeechBubble({
+          get win() { return win; },
+          get petHidden() { return petHidden; },
+          getNearestWorkArea,
+          getHitRectScreen: (bounds) => getHitRectScreen(bounds),
+          onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
+        });
 
-      const initSoulClient = require("../soul/client");
-      _soul = initSoulClient({
-        get win() { return win; },
-        get petHidden() { return petHidden; },
-        speechBubble: _speechBubble,
-        chatWindow: _chatWindow,
-        applyState: (state, svg) => applyState(state, svg || null),
-        resolveDisplayState,
-        getCurrentState: () => _state.getCurrentState(),
-      });
-      _soul.init().then((ok) => {
-        if (ok) console.log("Clawd: Soul engine connected");
-        else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
-      }).catch((err) => {
-        console.warn("Clawd: Soul init failed:", err.message);
-      });
-    } catch (err) {
-      console.warn("Clawd: Soul engine not loaded:", err.message);
-    }
+        const initSoulClient = require("../soul/client");
+        _soul = initSoulClient({
+          get win() { return win; },
+          get petHidden() { return petHidden; },
+          speechBubble: _speechBubble,
+          chatWindow: _chatWindow,
+          applyState: (state, svg) => applyState(state, svg || null),
+          resolveDisplayState,
+          getCurrentState: () => _state.getCurrentState(),
+        });
+        _soul.init().then((ok) => {
+          if (ok) console.log("Clawd: Soul engine connected");
+          else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
+        }).catch((err) => {
+          console.warn("Clawd: Soul init failed:", err.message);
+        });
+      } catch (err) {
+        console.warn("Clawd: Soul engine not loaded:", err.message);
+      }
 
-    // Setup Soul IPC handlers (diary, config, onboarding)
-    setupSoulIPC();
+      // Setup Soul IPC handlers (diary, config, onboarding)
+      setupSoulIPC();
 
-    // Show onboarding wizard on first launch
-    if (!_settingsController.get("hasCompletedOnboarding")) {
-      // Delay slightly so the pet window is visible first
-      setTimeout(() => openOnboarding(), 2000);
+      // Show onboarding wizard on first launch (advanced mode only — the
+      // wizard talks to the soul HTTP server which is only running here).
+      if (!_settingsController.get("hasCompletedOnboarding")) {
+        // Delay slightly so the pet window is visible first
+        setTimeout(() => openOnboarding(), 2000);
+      }
     }
   });
 

@@ -438,26 +438,42 @@ describe("prefs.validate", () => {
 });
 
 describe("prefs.migrate", () => {
-  it("upgrades v0 (no version field) to v1", () => {
+  it("upgrades v0 (no version field) through v1 to current version", () => {
     const raw = { lang: "zh", soundMuted: true };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 1);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
     assert.ok(upgraded.agents && typeof upgraded.agents === "object");
     assert.ok(upgraded.themeOverrides && typeof upgraded.themeOverrides === "object");
+    // v1→v2 backfills simpleMode (heuristic-driven; just assert it's a boolean).
+    assert.strictEqual(typeof upgraded.simpleMode, "boolean");
     // Original fields preserved
     assert.strictEqual(upgraded.lang, "zh");
     assert.strictEqual(upgraded.soundMuted, true);
   });
 
-  it("leaves v1 files alone", () => {
+  it("upgrades v1 files to v2 and backfills simpleMode", () => {
     const raw = {
       version: 1,
       lang: "en",
       agents: { "claude-code": { enabled: false } },
     };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 1);
+    assert.strictEqual(upgraded.version, 2);
     assert.strictEqual(upgraded.agents["claude-code"].enabled, false);
+    assert.strictEqual(typeof upgraded.simpleMode, "boolean");
+  });
+
+  it("respects simpleMode already set in raw input on v1→v2", () => {
+    const raw = { version: 1, simpleMode: false, hasCompletedOnboarding: false };
+    const upgraded = prefs.migrate(raw);
+    assert.strictEqual(upgraded.simpleMode, false);
+    assert.strictEqual(upgraded.version, 2);
+  });
+
+  it("flips simpleMode to false when hasCompletedOnboarding is true", () => {
+    const raw = { version: 1, hasCompletedOnboarding: true };
+    const upgraded = prefs.migrate(raw);
+    assert.strictEqual(upgraded.simpleMode, false);
   });
 
   it("backfills positionSaved=true for files with non-zero x/y", () => {
@@ -511,7 +527,7 @@ describe("prefs.load", () => {
     );
     const { snapshot, locked } = prefs.load(p);
     assert.strictEqual(locked, false);
-    assert.strictEqual(snapshot.version, 1);
+    assert.strictEqual(snapshot.version, prefs.CURRENT_VERSION);
     assert.strictEqual(snapshot.lang, "zh");
     assert.strictEqual(snapshot.x, 100);
     assert.strictEqual(snapshot.y, 200);
@@ -519,6 +535,7 @@ describe("prefs.load", () => {
     // New fields populated from defaults
     assert.ok(snapshot.agents);
     assert.ok(snapshot.themeOverrides);
+    assert.strictEqual(typeof snapshot.simpleMode, "boolean");
   });
 
   it("returns locked=true and warns for future-version files", () => {
@@ -554,7 +571,7 @@ describe("prefs.save", () => {
     assert.strictEqual(snapshot.lang, "zh");
     assert.strictEqual(snapshot.bubbleFollowPet, true);
     assert.strictEqual(snapshot.x, 42);
-    assert.strictEqual(snapshot.version, 1);
+    assert.strictEqual(snapshot.version, prefs.CURRENT_VERSION);
   });
 
   it("validates before writing — bad fields fall back to defaults on disk", () => {

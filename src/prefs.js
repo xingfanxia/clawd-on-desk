@@ -28,7 +28,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 // ── Schema ──
 // Each field has: type, default OR defaultFactory, optional enum/normalize/validate.
@@ -154,6 +154,11 @@ const SCHEMA = {
   // Soul engine: tracks whether user has gone through the onboarding wizard
   // (gates first-launch onboarding window in main.js whenReady).
   hasCompletedOnboarding: { type: "boolean", default: false },
+  // Default-mode gate. true = pure desktop pet (no soul, no onboarding wizard,
+  // no agent hook auto-install). false = full advanced mode. Fresh installs get
+  // true; existing users who already engaged AI features migrate to false (see
+  // migrate() v1 → v2). Settings → General has a single toggle to flip this.
+  simpleMode: { type: "boolean", default: true },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));
@@ -210,6 +215,12 @@ function validate(raw) {
 // v0 → v1: add `version`, `agents`, `themeOverrides` fields. Existing fields
 //   stay as-is and get re-validated downstream. Pre-existing prefs files have
 //   no `version` key — that's the v0 marker.
+// v1 → v2: introduce `simpleMode`. Schema default is true (fresh installs are
+//   pure-pet). Existing users who already engaged AI features (onboarding
+//   completed OR ~/.clawd/{soul.json,config.json} on disk) are flipped to
+//   false to preserve their advanced setup. Fresh-install path bypasses
+//   migrate() entirely (load() returns getDefaults() on ENOENT), so this
+//   block only runs for users with a pre-existing prefs file.
 function migrate(raw) {
   if (!raw || typeof raw !== "object") return raw;
   const out = { ...raw };
@@ -241,6 +252,25 @@ function migrate(raw) {
     if (out.updateBubbleAutoCloseSeconds === undefined) {
       out.updateBubbleAutoCloseSeconds = out.hideBubbles ? 0 : UPDATE_DEFAULT_SECONDS;
     }
+  }
+  // v1 → v2: backfill simpleMode for existing users. Heuristic: any prior
+  // engagement with AI features (onboarding flag, soul state file, or soul
+  // config file) keeps the user in advanced mode. Otherwise default to simple.
+  if ((typeof out.version !== "number" ? 0 : out.version) < 2) {
+    if (typeof out.simpleMode !== "boolean") {
+      const homeDir = require("os").homedir();
+      const soulStatePath = path.join(homeDir, ".clawd", "soul.json");
+      const soulConfigPath = path.join(homeDir, ".clawd", "config.json");
+      const onboardingDone = out.hasCompletedOnboarding === true;
+      let soulFilesPresent = false;
+      try {
+        soulFilesPresent = fs.existsSync(soulStatePath) || fs.existsSync(soulConfigPath);
+      } catch {
+        soulFilesPresent = false;
+      }
+      out.simpleMode = !(onboardingDone || soulFilesPresent);
+    }
+    out.version = 2;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
@@ -532,7 +562,19 @@ function load(prefsPath) {
     return { snapshot: validate(raw), locked: true };
   }
   const migrated = migrate(raw);
-  return { snapshot: validate(migrated), locked: false };
+  const validated = validate(migrated);
+  // If migration bumped the version, persist immediately so the heuristic-driven
+  // backfill (e.g. simpleMode in v1→v2) doesn't re-run every boot until the user
+  // happens to change a setting. Best-effort — a save failure here just falls
+  // back to the lazy-persist behaviour and isn't worth surfacing.
+  if (incomingVersion < CURRENT_VERSION) {
+    try {
+      save(prefsPath, validated);
+    } catch (err) {
+      console.warn("Clawd: failed to persist migrated prefs:", err && err.message);
+    }
+  }
+  return { snapshot: validated, locked: false };
 }
 
 function save(prefsPath, snapshot) {
