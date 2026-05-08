@@ -180,8 +180,9 @@ module.exports = function initNudges(ctx) {
           fireNudge("longSit");
         }
       }
-      // lateNightYawn — fires once per hour-block once the configured time
-      // has rolled over for today.
+      // lateNightYawn — fires once per evening once the configured time has
+      // rolled over for today. 6h cooldown ensures one yawn per night even
+      // if the user keeps the app running through midnight.
       if (shouldFire("lateNightYawn")) {
         const cfg = effectiveConfig("lateNightYawn");
         const now = new Date();
@@ -189,8 +190,8 @@ module.exports = function initNudges(ctx) {
         const fromMin = (cfg.fromHour || 23) * 60 + (cfg.fromMinute || 0);
         if (nowMin >= fromMin) {
           const lastFired = ((ctx.getPrefs() || {}).nudges || {}).lastFiredAt || {};
-          const oneHourAgo = Date.now() - 60 * 60_000;
-          if ((lastFired.lateNightYawn || 0) < oneHourAgo) {
+          const sixHoursAgo = Date.now() - 6 * 60 * 60_000;
+          if ((lastFired.lateNightYawn || 0) < sixHoursAgo) {
             fireNudge("lateNightYawn");
           }
         }

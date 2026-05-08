@@ -241,6 +241,11 @@ function resolveHitBoxForSvg(svg) {
 
 function refreshTheme() {
   theme = ctx.theme;
+  // PAWPAL-1: reset idle variant tracking on theme switch — variants are
+  // theme-scoped, and a "happy" variant from theme A shouldn't pin in place
+  // when theme B (which may not even define idleVariants) loads.
+  _lastIdleVariant = "neutral";
+  _lastVariantSwitchAt = 0;
   SVG_IDLE_FOLLOW = theme.states.idle[0];
   STATE_SVGS = { ...theme.states };
   STATE_BINDINGS = buildStateBindings(theme);

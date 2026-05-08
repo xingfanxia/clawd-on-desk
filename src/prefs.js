@@ -175,12 +175,22 @@ const SCHEMA = {
         return { preset: "normal", overrides: {}, lastFiredAt: {} };
       }
       const preset = ["quiet", "normal", "coach"].includes(v.preset) ? v.preset : "normal";
-      const overrides = (v.overrides && typeof v.overrides === "object" && !Array.isArray(v.overrides))
-        ? v.overrides
-        : {};
-      const lastFiredAt = (v.lastFiredAt && typeof v.lastFiredAt === "object" && !Array.isArray(v.lastFiredAt))
-        ? v.lastFiredAt
-        : {};
+      // Strip prototype-pollution sentinels from any user-controllable map.
+      // JSON.parse('{"__proto__":{...}}') produces an own-property `__proto__`
+      // that survives a shallow copy. Stored prefs are read-back as plain JSON
+      // so this is currently latent, but defending here keeps any future
+      // for...in / Object.assign consumer safe.
+      const _safeMap = (raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+        const out = {};
+        for (const k of Object.keys(raw)) {
+          if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+          out[k] = raw[k];
+        }
+        return out;
+      };
+      const overrides = _safeMap(v.overrides);
+      const lastFiredAt = _safeMap(v.lastFiredAt);
       return { preset, overrides, lastFiredAt };
     },
   },

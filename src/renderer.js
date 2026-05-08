@@ -1163,13 +1163,23 @@ window.electronAPI.onWakeFromDoze(() => {
 if (window.electronAPI && typeof window.electronAPI.onPushBehavior === "function") {
   window.electronAPI.onPushBehavior(({ behaviorId, file, duration }) => {
     if (!file) return;
+    // _assetsPath is undefined until initWithConfig() runs. If a behavior
+    // push races ahead of the first theme-config IPC, just drop it — the
+    // user can't see the overlay anyway since clawdEl isn't styled yet.
+    if (!_assetsPath) return;
+    // Mini mode flips clawdEl horizontally and uses a different viewBox.
+    // Variant routing for mini overlays is out of scope for v1, so skip the
+    // push during mini mode rather than ship a misaligned overlay.
+    if (typeof _inMiniMode === "boolean" && _inMiniMode) return;
     // Cancel any in-flight overlay (single behavior at a time in v1)
     if (behaviorActiveTimer) {
       clearTimeout(behaviorActiveTimer);
       behaviorActiveTimer = null;
     }
     behaviorActiveId = behaviorId;
-    behaviorEl.src = `${_assetsPath}/${file}`;
+    // Use getAssetUrl so external themes (which load SVGs from cache but
+    // APNGs from the source dir) resolve the file correctly.
+    behaviorEl.src = getAssetUrl(file);
     // Reuse the same scaling/positioning as clawdEl so the overlay aligns
     applyObjectScaleStyle(behaviorEl, file, null);
     requestAnimationFrame(() => { behaviorEl.style.opacity = "1"; });

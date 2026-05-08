@@ -700,30 +700,39 @@ function showNativeNotification({ title, body }) {
 }
 
 // PAWPAL-1 — push a transient behavior overlay above the state machine
-// (Task 7 wires the renderer side). If the active theme declares a `file` for
-// the behavior, the renderer plays it as a top-layer APNG. If the theme only
-// declares `fallbackTo` (legacy themes that lack the asset), we route the
-// nudge through the existing state machine instead — preserving DND, priority,
-// and minDisplay timings without duplicating that logic.
+// (Task 7 wires the renderer side). Resolution order:
+//   1. theme.behaviors[behaviorId].file → render as overlay APNG.
+//   2. theme.behaviors[behaviorId].fallbackTo → setState() through the
+//      existing state machine (preserves DND, priority, minDisplay timings).
+//   3. No theme.behaviors entry, but `behaviorId` is a real state name →
+//      setState(behaviorId). Lets nudges request semantic states (attention,
+//      yawning) without every theme having to declare an explicit overlay.
+//   4. Otherwise silent no-op.
 function pushBehavior(behaviorId, durationMs) {
   if (!behaviorId) return;
   const behaviors = (activeTheme && activeTheme.behaviors) || {};
   const entry = behaviors[behaviorId];
-  if (!entry) return; // theme has no behavior overlay support — silent no-op
 
-  if (!entry.file && entry.fallbackTo) {
-    if (typeof _state.setState === "function") {
-      _state.setState(entry.fallbackTo);
+  if (entry) {
+    if (!entry.file && entry.fallbackTo) {
+      if (typeof _state.setState === "function") _state.setState(entry.fallbackTo);
+      return;
     }
-    return;
+    if (entry.file) {
+      const dur = Number.isFinite(entry.duration) && entry.duration > 0
+        ? entry.duration
+        : (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 3000);
+      sendToRenderer("push-behavior", { behaviorId, file: entry.file, duration: dur });
+      return;
+    }
   }
 
-  if (entry.file) {
-    const dur = Number.isFinite(entry.duration) && entry.duration > 0
-      ? entry.duration
-      : (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 3000);
-    sendToRenderer("push-behavior", { behaviorId, file: entry.file, duration: dur });
+  // Step 3: behaviorId might be a state name the nudge is asking for directly
+  // (e.g. nudges.js fires `attention` / `yawning` for hydrate / lateNightYawn).
+  if (activeTheme && activeTheme.states && Object.prototype.hasOwnProperty.call(activeTheme.states, behaviorId)) {
+    if (typeof _state.setState === "function") _state.setState(behaviorId);
   }
+  // else: theme doesn't support this behavior or state at all — silent no-op.
 }
 
 function popBehavior(behaviorId) {
@@ -1773,10 +1782,21 @@ function wireSettingsSubscribers() {
 }
 wireSettingsSubscribers();
 
-// PAWPAL-1: Reload the nudge scheduler whenever the user flips a preset, a
-// per-nudge override, or the lastFiredAt map is touched. Reload is idempotent
-// (stop() + start()) so spurious notifications don't fire.
-_settingsController.subscribeKey("nudges", () => {
+// PAWPAL-1: Reload the nudge scheduler whenever the user flips a preset or
+// per-nudge override. Skip reloads that only touch `lastFiredAt` — the
+// scheduler writes there on every fire as bookkeeping, and reloading on each
+// fire would tear down + restart the cron interval mid-tick (functionally
+// fine; wasteful + forces a sync prefs.json write per fire).
+let _lastNudgesConfigSig = null;
+function _nudgesConfigSig(n) {
+  if (!n) return "";
+  // overrides is a small object — JSON is fine and stable enough for diffing.
+  return `${n.preset || ""}|${JSON.stringify(n.overrides || {})}`;
+}
+_settingsController.subscribeKey("nudges", (next) => {
+  const sig = _nudgesConfigSig(next);
+  if (sig === _lastNudgesConfigSig) return; // lastFiredAt-only change → bookkeeping
+  _lastNudgesConfigSig = sig;
   if (_nudges) _nudges.reload();
 });
 
