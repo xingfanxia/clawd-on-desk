@@ -15,6 +15,7 @@
     "permissionBubblesEnabled",
     "notificationBubbleAutoCloseSeconds",
     "updateBubbleAutoCloseSeconds",
+    "simpleMode",
   ]);
   const BUBBLE_POLICY_KEYS = new Set([
     "permissionBubblesEnabled",
@@ -72,6 +73,16 @@
         key: "keepSizeAcrossDisplays",
         labelKey: "rowKeepSizeAcrossDisplays",
         descKey: "rowKeepSizeAcrossDisplaysDesc",
+      }),
+    ]));
+
+    parent.appendChild(helpers.buildSection(t("sectionAIFeatures"), [
+      helpers.buildSwitchRow({
+        key: "simpleMode",
+        labelKey: "rowEnableAIFeatures",
+        descKey: "rowEnableAIFeaturesDesc",
+        descExtraKey: "rowEnableAIFeaturesRestartNote",
+        invert: true,
       }),
     ]));
 

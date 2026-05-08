@@ -401,6 +401,12 @@ const updateRegistry = {
     },
   },
 
+  // simpleMode: pure-pet mode toggle. Persists immediately; the actual gates
+  // (soul boot, hook auto-sync, onboarding window) read it on next app start,
+  // so the user must restart Clawd to see the change. Restart UX hint lives
+  // in i18n key `rowEnableAIFeaturesRestartNote`.
+  simpleMode: requireBoolean("simpleMode"),
+
   // openAtLogin: writes the OS login item entry. Truth lives in the OS
   //   (LaunchAgent on macOS, Registry Run key on Windows, ~/.config/autostart
   //   on Linux). Effect proxies to a deps-injected setter so platform branching
