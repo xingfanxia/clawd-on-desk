@@ -38,6 +38,10 @@
     "sleeping": ["ragdoll-sleeping.apng"],
     "waking": ["ragdoll-wake.apng"]
   },
+  "idleVariants": {
+    "happy":  ["ragdoll-happy.apng"],
+    "dozing": ["ragdoll-idle-dozing.apng"]
+  },
   "workingTiers": [
     {
       "minSessions": 1,

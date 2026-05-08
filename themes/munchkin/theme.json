@@ -38,6 +38,10 @@
     "sleeping": ["munchkin-sleeping.apng"],
     "waking": ["munchkin-wake.apng"]
   },
+  "idleVariants": {
+    "happy":  ["munchkin-happy.apng"],
+    "dozing": ["munchkin-idle-dozing.apng"]
+  },
   "workingTiers": [
     {
       "minSessions": 1,
