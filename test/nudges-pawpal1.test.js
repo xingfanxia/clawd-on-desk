@@ -56,7 +56,7 @@ function makeCtx(overrides = {}) {
   assert.strictEqual(ctx._calls.showNativeNotification.length, 1);
   assert.ok(ctx._calls.showNativeNotification[0].title.includes("nudgePomodoroTitle"));
   assert.strictEqual(ctx._calls.playSound.length, 1);
-  assert.strictEqual(ctx._calls.playSound[0], "confirm.mp3");
+  assert.strictEqual(ctx._calls.playSound[0], "confirm");
 }
 
 // 3. DND blocks all fires across all nudge types

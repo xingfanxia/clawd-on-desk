@@ -1079,6 +1079,10 @@ const _stateCtx = {
   get forceEyeResend() { return forceEyeResend; },
   set forceEyeResend(v) { setForceEyeResend(v); },
   get mouseStillSince() { return _tick ? _tick._mouseStillSince : Date.now(); },
+  // PAWPAL-1: state.js's idle variant poller queries Soul mood — exposed
+  // through the same getter style as _tickCtx so it tracks the lazily-created
+  // _soul instance after `setupSoulIPC` runs in advanced mode.
+  get soul() { return _soul; },
   get pendingPermissions() { return pendingPermissions; },
   sendToRenderer,
   sendToHitWin,
@@ -1499,8 +1503,12 @@ const _menuCtx = {
   set contextMenuOwner(v) { contextMenuOwner = v; },
   get contextMenu() { return contextMenu; },
   set contextMenu(v) { contextMenu = v; },
-  enableDoNotDisturb: () => enableDoNotDisturb(),
-  disableDoNotDisturb: () => disableDoNotDisturb(),
+  // PAWPAL-1: nudges.shouldFire() reads ctx.isDndEnabled() at fire time, so
+  // an in-flight timer naturally gates correctly when DND flips. Reloading
+  // here is belt-and-suspenders — resets the timer schedule so any cron
+  // interval that was about to fire mid-DND restarts cleanly.
+  enableDoNotDisturb: () => { enableDoNotDisturb(); if (_nudges) _nudges.reload(); },
+  disableDoNotDisturb: () => { disableDoNotDisturb(); if (_nudges) _nudges.reload(); },
   enterMiniViaMenu: () => enterMiniViaMenu(),
   exitMiniMode: () => exitMiniMode(),
   getMiniMode: () => _mini.getMiniMode(),
@@ -1545,6 +1553,33 @@ const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
+
+// ── Nudges scheduler (PAWPAL-1) — wired after _menu so we have `t` for i18n
+//    and after _state via _stateCtx.soul wiring above. The scheduler reads
+//    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
+//    cache stale state. `start()` is called from app.whenReady() below.
+const _nudgesCtx = {
+  getPrefs: () => _settingsController.getSnapshot(),
+  setPrefs: (patch) => {
+    if (!patch || typeof patch !== "object") return;
+    for (const key of Object.keys(patch)) {
+      _settingsController.applyUpdate(key, patch[key]);
+    }
+  },
+  isDndEnabled: () => doNotDisturb,
+  pushBehavior: (id, dur) => pushBehavior(id, dur),
+  showNativeNotification: ({ title, body }) => showNativeNotification({ title, body }),
+  playSound: (name) => playSound(name),
+  getMouseStillSinceMs: () => (_tick && typeof _tick._mouseStillSince === "number" ? _tick._mouseStillSince : Date.now()),
+  // i18n with optional {{name}} mustache substitution. The base translator
+  // doesn't take params, so we interpolate here to keep nudges.js generic.
+  t: (key, params) => {
+    const tpl = translate(key);
+    if (!params) return tpl;
+    return String(tpl).replace(/\{\{(\w+)\}\}/g, (_m, name) => (params[name] != null ? String(params[name]) : ""));
+  },
+};
+const _nudges = require("./nudges")(_nudgesCtx);
 
 // ── Settings subscribers ──
 //
@@ -1735,6 +1770,14 @@ function wireSettingsSubscribers() {
   });
 }
 wireSettingsSubscribers();
+
+// PAWPAL-1: Reload the nudge scheduler whenever the user flips a preset, a
+// per-nudge override, or the lastFiredAt map is touched. Reload is idempotent
+// (stop() + start()) so spurious notifications don't fire.
+_settingsController.subscribeKey("nudges", () => {
+  if (_nudges) _nudges.reload();
+});
+
 _settingsController.subscribeKey("shortcuts", (_value, snapshot) => {
   const nextTogglePetShortcut = (snapshot && snapshot.shortcuts && snapshot.shortcuts.togglePet) || null;
   if (nextTogglePetShortcut === lastTogglePetShortcut) return;
@@ -4578,6 +4621,24 @@ if (!gotTheLock) {
     // Auto-updater: setup event handlers (user triggers check via tray menu)
     setupAutoUpdater();
 
+    // ── PAWPAL-1: Self-care nudge scheduler + Soul-driven idle variants ──
+    // Scheduler is orthogonal to simpleMode — health nudges (Pomodoro break,
+    // hydrate, long-sit) fire even in pure-pet mode since they don't depend
+    // on the AI brain. Idle variant routing is Soul-dependent and no-ops
+    // gracefully when the soul is absent (ctx.soul.healthy is false).
+    try {
+      _nudges.start();
+    } catch (err) {
+      console.warn("Clawd: nudges.start() failed:", err && err.message);
+    }
+    try {
+      if (_state && typeof _state.startIdleVariantPoll === "function") {
+        _state.startIdleVariantPoll();
+      }
+    } catch (err) {
+      console.warn("Clawd: startIdleVariantPoll() failed:", err && err.message);
+    }
+
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
     // loop, no chat window, no onboarding wizard. Toggling simpleMode off in
@@ -4641,6 +4702,10 @@ if (!gotTheLock) {
     _perm.cleanup();
     _server.cleanup();
     _updateBubble.cleanup();
+    // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
+    // _state for pushBehavior + DND read-through, so stop them first.
+    if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
+    if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();
     _mini.cleanup();

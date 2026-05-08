@@ -42,9 +42,11 @@ const PRESET_CONFIG = {
 // resolves it through theme.behaviors — themes without the asset fall back
 // (e.g. legacy themes resolve walkAcross → notification state via fallbackTo).
 //
-// Sounds: only `complete.mp3` and `confirm.mp3` ship in assets/sounds/. The
-// gentler `confirm.mp3` fits the "soft ack" tone of self-care nudges across
-// all three categories. Late-night yawn intentionally has no sound — the
+// `soundName` uses the logical sound name from theme.json's `sounds` map
+// (resolved via themeLoader.getSoundUrl in main.js's playSound). Only
+// `complete` and `confirm` ship in built-in themes today; `confirm` is the
+// gentler ack tone and fits the "soft self-care" feel across all three
+// nudge categories. Late-night yawn intentionally has no sound — the
 // visual yawn animation is the whole point.
 const NUDGE_DEFINITIONS = {
   pomodoroBreak: {
@@ -52,28 +54,28 @@ const NUDGE_DEFINITIONS = {
     behavior: "walkAcross",
     titleKey: "nudgePomodoroTitle",
     bodyKey: "nudgePomodoroBody",
-    soundFile: "confirm.mp3",
+    soundName: "confirm",
   },
   hydrate: {
     type: "cron",
     behavior: "attention",
     titleKey: "nudgeHydrateTitle",
     bodyKey: "nudgeHydrateBody",
-    soundFile: "confirm.mp3",
+    soundName: "confirm",
   },
   longSit: {
     type: "detector",
     behavior: "walkAcross",
     titleKey: "nudgeLongSitTitle",
     bodyKey: "nudgeLongSitBody",
-    soundFile: "confirm.mp3",
+    soundName: "confirm",
   },
   lateNightYawn: {
     type: "schedule",
     behavior: "yawning",
     titleKey: "nudgeLateNightTitle",
     bodyKey: "nudgeLateNightBody",
-    soundFile: null,
+    soundName: null,
   },
 };
 
@@ -145,8 +147,8 @@ module.exports = function initNudges(ctx) {
         title: ctx.t(def.titleKey),
         body: ctx.t(def.bodyKey, params),
       });
-      if (def.soundFile && typeof ctx.playSound === "function") {
-        ctx.playSound(def.soundFile);
+      if (def.soundName && typeof ctx.playSound === "function") {
+        ctx.playSound(def.soundName);
       }
     }
   }
