@@ -115,6 +115,15 @@ let WIDE_SVGS = new Set();
 let SLEEPING_SVGS = new Set();
 let currentHitBox = HIT_BOXES.default;
 
+// ── PAWPAL-1: idle variant tracking (must be declared before refreshTheme) ──
+// While the pet is in `idle`, periodically fetch Soul mood and pick a
+// `theme.idleVariants[<name>]` to swap into. Async + interval-based so the
+// rest of the (synchronous) state machine stays sync. Hysteresis (30s) keeps
+// the cat from flapping between expressions when scores hover near a boundary.
+let _lastIdleVariant = "neutral";
+let _lastVariantSwitchAt = 0;
+let _idleVariantTimer = null;
+
 // ── State machine internal ──
 let currentState = "idle";
 let previousState = "idle";
@@ -574,17 +583,7 @@ function stopWakePoll() {
 }
 
 // ── PAWPAL-1: Soul-driven idle variant routing ──
-// While the pet is in `idle`, periodically fetch Soul mood and pick a
-// `theme.idleVariants[<name>]` to swap into. Async + interval-based so the
-// rest of the (synchronous) state machine stays sync — variant routing
-// never gates a transition, it just refreshes the displayed SVG when idle.
-//
-// Hysteresis: 30s minimum between variant switches. Without it, mood scores
-// hovering near a boundary cause flapping that looks like the pet is
-// twitching between expressions.
-let _lastIdleVariant = "neutral";
-let _lastVariantSwitchAt = 0;
-let _idleVariantTimer = null;
+// State (declared above so refreshTheme() at module-init can read it)
 const IDLE_VARIANT_HYSTERESIS_MS = 30_000;
 const IDLE_VARIANT_POLL_MS = 60_000;
 
