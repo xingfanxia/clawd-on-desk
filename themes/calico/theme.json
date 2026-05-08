@@ -218,6 +218,11 @@
       "duration": 2500
     }
   },
+  "behaviors": {
+    "walkAcross": {
+      "fallbackTo": "notification"
+    }
+  },
   "miniMode": {
     "supported": true,
     "flipAssets": true,
