@@ -26,6 +26,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Sound playback (from main)
   onPlaySound: (cb) => ipcRenderer.on("play-sound", (_, payload) => cb(payload)),
   onInvalidateSoundCache: (cb) => ipcRenderer.on("invalidate-sound-cache", (_, url) => cb(url)),
+  // PAWPAL-1 — behavior overlay layer (transient APNG above the state machine).
+  // Main pushes a behavior with { behaviorId, file, duration }; renderer
+  // displays the file for `duration` ms then auto-pops. Pop fires earlier on
+  // explicit cancel.
+  onPushBehavior: (cb) => ipcRenderer.on("push-behavior", (_, payload) => cb(payload)),
+  onPopBehavior: (cb) => ipcRenderer.on("pop-behavior", (_, payload) => cb(payload)),
   // Render window → main (cursor polling control during reactions)
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),

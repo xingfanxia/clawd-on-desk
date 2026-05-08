@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, Notification: ElectronNotification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -678,6 +678,57 @@ function sendToRenderer(channel, ...args) {
 }
 function sendToHitWin(channel, ...args) {
   if (hitWin && !hitWin.isDestroyed()) hitWin.webContents.send(channel, ...args);
+}
+
+// PAWPAL-1 — native macOS notification helper. Used by the nudge scheduler at
+// `coach` preset. macOS suppresses notifications silently when the user has
+// denied notifications system-wide; we just log and continue.
+function showNativeNotification({ title, body }) {
+  if (!title) return;
+  if (!ElectronNotification || !ElectronNotification.isSupported()) return;
+  try {
+    const n = new ElectronNotification({
+      title,
+      body: body || "",
+      silent: false,
+      timeoutType: "default",
+    });
+    n.show();
+  } catch (err) {
+    console.warn("Clawd: native notification failed:", err && err.message);
+  }
+}
+
+// PAWPAL-1 — push a transient behavior overlay above the state machine
+// (Task 7 wires the renderer side). If the active theme declares a `file` for
+// the behavior, the renderer plays it as a top-layer APNG. If the theme only
+// declares `fallbackTo` (legacy themes that lack the asset), we route the
+// nudge through the existing state machine instead — preserving DND, priority,
+// and minDisplay timings without duplicating that logic.
+function pushBehavior(behaviorId, durationMs) {
+  if (!behaviorId) return;
+  const behaviors = (activeTheme && activeTheme.behaviors) || {};
+  const entry = behaviors[behaviorId];
+  if (!entry) return; // theme has no behavior overlay support — silent no-op
+
+  if (!entry.file && entry.fallbackTo) {
+    if (typeof _state.setState === "function") {
+      _state.setState(entry.fallbackTo);
+    }
+    return;
+  }
+
+  if (entry.file) {
+    const dur = Number.isFinite(entry.duration) && entry.duration > 0
+      ? entry.duration
+      : (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 3000);
+    sendToRenderer("push-behavior", { behaviorId, file: entry.file, duration: dur });
+  }
+}
+
+function popBehavior(behaviorId) {
+  if (!behaviorId) return;
+  sendToRenderer("pop-behavior", { behaviorId });
 }
 
 function setViewportOffsetY(offsetY) {
