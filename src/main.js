@@ -1571,12 +1571,14 @@ const _nudgesCtx = {
   showNativeNotification: ({ title, body }) => showNativeNotification({ title, body }),
   playSound: (name) => playSound(name),
   getMouseStillSinceMs: () => (_tick && typeof _tick._mouseStillSince === "number" ? _tick._mouseStillSince : Date.now()),
-  // i18n with optional {{name}} mustache substitution. The base translator
-  // doesn't take params, so we interpolate here to keep nudges.js generic.
+  // i18n with optional `{name}` substitution (matches existing i18n.js
+  // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
+  // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
+  // stays generic.
   t: (key, params) => {
     const tpl = translate(key);
     if (!params) return tpl;
-    return String(tpl).replace(/\{\{(\w+)\}\}/g, (_m, name) => (params[name] != null ? String(params[name]) : ""));
+    return String(tpl).replace(/\{(\w+)\}/g, (_m, name) => (params[name] != null ? String(params[name]) : ""));
   },
 };
 const _nudges = require("./nudges")(_nudgesCtx);
