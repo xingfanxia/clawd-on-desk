@@ -589,6 +589,22 @@ function reportEvent(eventName) {
   soulRequest("POST", "/mood/event", { event: eventName }).catch(() => {});
 }
 
+// PAWPAL-1 — fetch the current mood snapshot for idle variant routing.
+// Returns { mood: { energy, interest, affection, ... }, trust, ... } on
+// success, or null when the soul is not available or the request fails.
+// Callers MUST treat null as "no mood available" and degrade gracefully
+// (state.js falls back to plain states.idle).
+async function getMood() {
+  if (!_healthy) return null;
+  try {
+    const result = await soulRequest("GET", "/mood");
+    if (result && result.ok && result.mood) return result;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Timers
 // ---------------------------------------------------------------------------
@@ -709,6 +725,7 @@ return {
   chat,
   doObservation,
   reportEvent,
+  getMood,
   updateForegroundApp,
   pairWithRemote,
   disconnectRemote,
