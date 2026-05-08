@@ -493,6 +493,10 @@ const updateRegistry = {
   // ── Phase 2/3 placeholders — schema reserves these so applyUpdate accepts them ──
   agents: requirePlainObject("agents"),
   themeOverrides: requirePlainObject("themeOverrides"),
+  // PAWPAL-1: nudge config (preset + per-nudge overrides + lastFiredAt). Shape
+  // is enforced downstream by prefs.SCHEMA.nudges.normalize() — applyUpdate
+  // just gates that the payload is a plain object.
+  nudges: requirePlainObject("nudges"),
   sessionAliases(value, deps = {}) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return { status: "error", message: "sessionAliases must be a plain object" };
