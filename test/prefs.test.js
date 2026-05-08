@@ -451,23 +451,25 @@ describe("prefs.migrate", () => {
     assert.strictEqual(upgraded.soundMuted, true);
   });
 
-  it("upgrades v1 files to v2 and backfills simpleMode", () => {
+  it("upgrades v1 files through v2 to current version + backfills simpleMode + nudges", () => {
     const raw = {
       version: 1,
       lang: "en",
       agents: { "claude-code": { enabled: false } },
     };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 2);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
     assert.strictEqual(upgraded.agents["claude-code"].enabled, false);
     assert.strictEqual(typeof upgraded.simpleMode, "boolean");
+    // PAWPAL-1: v2→v3 also cascades, so nudges are present
+    assert.strictEqual(upgraded.nudges.preset, "normal");
   });
 
-  it("respects simpleMode already set in raw input on v1→v2", () => {
+  it("respects simpleMode already set in raw input through the migration chain", () => {
     const raw = { version: 1, simpleMode: false, hasCompletedOnboarding: false };
     const upgraded = prefs.migrate(raw);
     assert.strictEqual(upgraded.simpleMode, false);
-    assert.strictEqual(upgraded.version, 2);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
   });
 
   it("flips simpleMode to false when hasCompletedOnboarding is true", () => {

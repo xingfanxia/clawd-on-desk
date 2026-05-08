@@ -28,7 +28,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 // ── Schema ──
 // Each field has: type, default OR defaultFactory, optional enum/normalize/validate.
@@ -159,6 +159,31 @@ const SCHEMA = {
   // true; existing users who already engaged AI features migrate to false (see
   // migrate() v1 → v2). Settings → General has a single toggle to flip this.
   simpleMode: { type: "boolean", default: true },
+  // PAWPAL-1: self-care nudges configuration. `preset` selects an aggression
+  // level (quiet/normal/coach); `overrides` per-nudge override the preset
+  // defaults; `lastFiredAt` is internal bookkeeping for detector-based nudges
+  // (longSit, lateNightYawn) so we can rate-limit re-fires across restarts.
+  nudges: {
+    type: "object",
+    defaultFactory: () => ({
+      preset: "normal",
+      overrides: {},
+      lastFiredAt: {},
+    }),
+    normalize: (v) => {
+      if (!v || typeof v !== "object") {
+        return { preset: "normal", overrides: {}, lastFiredAt: {} };
+      }
+      const preset = ["quiet", "normal", "coach"].includes(v.preset) ? v.preset : "normal";
+      const overrides = (v.overrides && typeof v.overrides === "object" && !Array.isArray(v.overrides))
+        ? v.overrides
+        : {};
+      const lastFiredAt = (v.lastFiredAt && typeof v.lastFiredAt === "object" && !Array.isArray(v.lastFiredAt))
+        ? v.lastFiredAt
+        : {};
+      return { preset, overrides, lastFiredAt };
+    },
+  },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));
@@ -221,6 +246,10 @@ function validate(raw) {
 //   false to preserve their advanced setup. Fresh-install path bypasses
 //   migrate() entirely (load() returns getDefaults() on ENOENT), so this
 //   block only runs for users with a pre-existing prefs file.
+// v2 → v3: introduce `nudges` (PAWPAL-1). Existing users get the same
+//   defaults as fresh installs — preset "normal", no overrides, empty
+//   lastFiredAt — so the new self-care nudge layer comes online silently
+//   without surprising anyone with a "coach" preset they never asked for.
 function migrate(raw) {
   if (!raw || typeof raw !== "object") return raw;
   const out = { ...raw };
@@ -271,6 +300,16 @@ function migrate(raw) {
       out.simpleMode = !(onboardingDone || soulFilesPresent);
     }
     out.version = 2;
+  }
+  // v2 → v3: backfill `nudges` (PAWPAL-1) with the same defaults as a fresh
+  // install. The schema-default factory would also fill it during validate(),
+  // but doing it explicitly here keeps migration self-contained and makes the
+  // version bump observable to the persist-on-load path in load().
+  if ((typeof out.version !== "number" ? 0 : out.version) < 3) {
+    if (out.nudges === undefined) {
+      out.nudges = { preset: "normal", overrides: {}, lastFiredAt: {} };
+    }
+    out.version = 3;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
