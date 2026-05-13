@@ -1164,6 +1164,19 @@ const _stateCtx = {
     }
     return false;
   },
+  // PAWPAL-2 Task 8: workspace-category bias for idle variant routing.
+  // state.js's applyIdleVariantOnce reads this at poll time (≥60s after init),
+  // so the lazy `_workspaceDetector` binding declared further down in main.js
+  // is fully assigned by the time this reader runs. Mirrors the shape of
+  // _nudgesCtx.getAppCategory. Returns null when:
+  //   - detector hasn't been instantiated yet (early-startup race)
+  //   - detector is gated off (workspaceAwareness.enabled = false)
+  //   - no confirmed active app (initial state, debounce window)
+  // state.js tolerates null and falls back to PAWPAL-1 mood-only routing.
+  getWorkspaceCategory: () => {
+    const current = _workspaceDetector && _workspaceDetector.getCurrentApp();
+    return current ? current.category : null;
+  },
 };
 const _state = require("./state")(_stateCtx);
 const { setState, applyState, updateSession, resolveDisplayState, getSvgOverride,

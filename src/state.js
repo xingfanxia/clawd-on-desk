@@ -587,7 +587,20 @@ function stopWakePoll() {
 const IDLE_VARIANT_HYSTERESIS_MS = 30_000;
 const IDLE_VARIANT_POLL_MS = 60_000;
 
-function pickIdleVariantName(mood) {
+function pickIdleVariantName(mood, workspace) {
+  // PAWPAL-2: workspace bias overrides mood routing for "strong-signal"
+  // categories (code/video/creative). Other categories (docs/social/chat/
+  // unknown) fall through to PAWPAL-1's mood routing.
+  //
+  // The downstream resolver (applyIdleVariantOnce) gracefully bails when
+  // `theme.idleVariants[pick]` is missing or empty, so this override never
+  // strands the cat on a non-existent animation — the theme's default `idle`
+  // state stands in instead.
+  if (workspace && workspace.category === "code")     return "working";
+  if (workspace && workspace.category === "video")    return "dozing";
+  if (workspace && workspace.category === "creative") return "happy";
+
+  // PAWPAL-1: mood-based routing (unchanged scoring + 0.7 / 0.3 thresholds).
   if (!mood) return "neutral";
   const energy = Number(mood.energy);
   const affection = Number(mood.affection);
@@ -613,7 +626,16 @@ async function applyIdleVariantOnce() {
   }
   if (!payload || !payload.mood) return;
 
-  let pick = pickIdleVariantName(payload.mood);
+  // PAWPAL-2 Task 8: pull workspace category (if the host wired the reader)
+  // and let it bias the variant pick. Reader is optional + null-tolerant —
+  // when the workspace detector is off, gated, or hasn't confirmed an app
+  // yet, we pass null and fall through to mood-only routing.
+  const wsCategory = (typeof ctx.getWorkspaceCategory === "function")
+    ? ctx.getWorkspaceCategory()
+    : null;
+  const workspace = wsCategory ? { category: wsCategory } : null;
+
+  let pick = pickIdleVariantName(payload.mood, workspace);
   const now = Date.now();
   if (pick !== _lastIdleVariant && (now - _lastVariantSwitchAt) < IDLE_VARIANT_HYSTERESIS_MS) {
     pick = _lastIdleVariant; // hold previous variant
