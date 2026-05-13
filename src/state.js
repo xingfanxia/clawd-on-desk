@@ -628,7 +628,9 @@ async function applyIdleVariantOnce() {
 
   // Re-check state right before applying — async fetch may have raced past idle.
   if (currentState !== "idle") return;
-  applyState("idle", files[0]);
+  // Randomize across the variant's file array so multi-file variants rotate
+  // naturally — matches the convention used by resolveVisualBinding for states.
+  applyState("idle", pickStateFile(files));
 }
 
 function startIdleVariantPoll() {

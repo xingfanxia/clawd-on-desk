@@ -18,6 +18,17 @@
 
   const PRESETS = ["quiet", "normal", "coach"];
 
+  // Mirrors PRESET_CONFIG[<preset>][<nudge>].enabled in src/nudges.js. Kept
+  // tiny + duplicated here on purpose: the awareness tab is a renderer-process
+  // surface and the full PRESET_CONFIG isn't exposed via preload. Used only
+  // to surface the "won't fire under current preset" hint below disabled
+  // toggles (the actual gating happens in nudges.js#shouldFire).
+  const PRESET_ENABLES = {
+    quiet:  { pomodoroBreak: true, hydrate: false, longSit: false, lateNightYawn: false },
+    normal: { pomodoroBreak: true, hydrate: true,  longSit: true,  lateNightYawn: true  },
+    coach:  { pomodoroBreak: true, hydrate: true,  longSit: true,  lateNightYawn: true  },
+  };
+
   let state = null;
   let helpers = null;
 
@@ -56,6 +67,12 @@
     const ov = cur.overrides && cur.overrides[nudgeId];
     if (ov && typeof ov.enabled === "boolean") return ov.enabled;
     return true; // default: enabled (preset-config-driven; override only forces off)
+  }
+
+  function isSuppressedByPreset(nudgeId) {
+    const preset = readNudges().preset;
+    const map = PRESET_ENABLES[preset] || PRESET_ENABLES.normal;
+    return map[nudgeId] === false;
   }
 
   function buildPresetRow() {
@@ -122,6 +139,17 @@
     label.className = "row-label";
     label.textContent = t(labelKey);
     text.appendChild(label);
+
+    // Surface preset-driven suppression so users don't wonder why a "on"
+    // toggle never fires. The actual gating lives in nudges.js#shouldFire.
+    if (isSuppressedByPreset(id)) {
+      const hint = document.createElement("span");
+      hint.className = "row-desc";
+      hint.style.opacity = "0.7";
+      hint.textContent = t("nudgeSuppressedByPreset");
+      text.appendChild(hint);
+    }
+
     row.appendChild(text);
 
     const control = document.createElement("div");

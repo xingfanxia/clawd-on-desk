@@ -708,6 +708,14 @@ function showNativeNotification({ title, body }) {
 //      setState(behaviorId). Lets nudges request semantic states (attention,
 //      yawning) without every theme having to declare an explicit overlay.
 //   4. Otherwise silent no-op.
+//
+// Mini-mode handling: paths 2 and 3 go through _state.setState(), which
+// internally remaps requested states to their mini-mode equivalents when
+// ctx.miniMode is true (see state.js:446-453 — attention → mini-happy,
+// notification → mini-alert, etc.). So no explicit mini-mode guard is
+// needed here. The renderer-side onPushBehavior handler does guard against
+// overlays in mini mode (renderer.js) because overlay rendering bypasses
+// the state machine entirely; only path 1 reaches the renderer.
 function pushBehavior(behaviorId, durationMs) {
   if (!behaviorId) return;
   const behaviors = (activeTheme && activeTheme.behaviors) || {};
@@ -735,6 +743,11 @@ function pushBehavior(behaviorId, durationMs) {
   // else: theme doesn't support this behavior or state at all — silent no-op.
 }
 
+// Currently unused in PAWPAL-1 — overlays expire via the duration timer
+// in renderer.js. Reserved for PAWPAL-2 (focus-mode integration), where
+// entering focus mode will cancel any active nudge overlay immediately
+// rather than waiting for the timer.
+// TODO(PAWPAL-2): wire to focus-mode transitions.
 function popBehavior(behaviorId) {
   if (!behaviorId) return;
   sendToRenderer("pop-behavior", { behaviorId });
@@ -1787,12 +1800,15 @@ wireSettingsSubscribers();
 // scheduler writes there on every fire as bookkeeping, and reloading on each
 // fire would tear down + restart the cron interval mid-tick (functionally
 // fine; wasteful + forces a sync prefs.json write per fire).
-let _lastNudgesConfigSig = null;
 function _nudgesConfigSig(n) {
   if (!n) return "";
   // overrides is a small object — JSON is fine and stable enough for diffing.
   return `${n.preset || ""}|${JSON.stringify(n.overrides || {})}`;
 }
+// Seed from current snapshot so the first fire's lastFiredAt-only diff is
+// correctly skipped — initializing to null would mismatch on first fire and
+// trigger a spurious reload() that resets every cron interval.
+let _lastNudgesConfigSig = _nudgesConfigSig((_settingsController.getSnapshot() || {}).nudges);
 _settingsController.subscribeKey("nudges", (next) => {
   const sig = _nudgesConfigSig(next);
   if (sig === _lastNudgesConfigSig) return; // lastFiredAt-only change → bookkeeping
