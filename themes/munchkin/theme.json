@@ -107,6 +107,9 @@
       "file": "munchkin-walk-across.apng",
       "duration": 3000,
       "fallbackTo": "notification"
+    },
+    "headShake": {
+      "fallbackTo": "error"
     }
   },
   "miniMode": {

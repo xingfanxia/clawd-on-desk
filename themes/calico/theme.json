@@ -221,6 +221,9 @@
   "behaviors": {
     "walkAcross": {
       "fallbackTo": "notification"
+    },
+    "headShake": {
+      "fallbackTo": "error"
     }
   },
   "miniMode": {
