@@ -2,6 +2,8 @@
 
 Install a downloaded Clawd theme, or create your own desktop pet theme with custom characters and animations.
 
+> **AI-generated themes from real photos**: if you want to make a theme from a real animal/character using AI image + video generation (instead of drawing assets by hand), the runnable end-to-end recipe is at [`docs/guides/custom-pet-generation.md`](./custom-pet-generation.md). The worked example (Munchkin + Ragdoll) lives at [`docs/project/custom-cat-pets-{design,plan}.md`](../project/).
+
 ## Install A Downloaded Theme
 
 A Clawd theme is a folder whose top level contains `theme.json`. The folder name is the theme id; the display name shown in Clawd comes from `theme.json.name`.

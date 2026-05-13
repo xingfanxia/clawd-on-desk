@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, Notification: ElectronNotification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -680,6 +680,79 @@ function sendToHitWin(channel, ...args) {
   if (hitWin && !hitWin.isDestroyed()) hitWin.webContents.send(channel, ...args);
 }
 
+// PAWPAL-1 — native macOS notification helper. Used by the nudge scheduler at
+// `coach` preset. macOS suppresses notifications silently when the user has
+// denied notifications system-wide; we just log and continue.
+function showNativeNotification({ title, body }) {
+  if (!title) return;
+  if (!ElectronNotification || !ElectronNotification.isSupported()) return;
+  try {
+    const n = new ElectronNotification({
+      title,
+      body: body || "",
+      silent: false,
+      timeoutType: "default",
+    });
+    n.show();
+  } catch (err) {
+    console.warn("Clawd: native notification failed:", err && err.message);
+  }
+}
+
+// PAWPAL-1 — push a transient behavior overlay above the state machine
+// (Task 7 wires the renderer side). Resolution order:
+//   1. theme.behaviors[behaviorId].file → render as overlay APNG.
+//   2. theme.behaviors[behaviorId].fallbackTo → setState() through the
+//      existing state machine (preserves DND, priority, minDisplay timings).
+//   3. No theme.behaviors entry, but `behaviorId` is a real state name →
+//      setState(behaviorId). Lets nudges request semantic states (attention,
+//      yawning) without every theme having to declare an explicit overlay.
+//   4. Otherwise silent no-op.
+//
+// Mini-mode handling: paths 2 and 3 go through _state.setState(), which
+// internally remaps requested states to their mini-mode equivalents when
+// ctx.miniMode is true (see state.js:446-453 — attention → mini-happy,
+// notification → mini-alert, etc.). So no explicit mini-mode guard is
+// needed here. The renderer-side onPushBehavior handler does guard against
+// overlays in mini mode (renderer.js) because overlay rendering bypasses
+// the state machine entirely; only path 1 reaches the renderer.
+function pushBehavior(behaviorId, durationMs) {
+  if (!behaviorId) return;
+  const behaviors = (activeTheme && activeTheme.behaviors) || {};
+  const entry = behaviors[behaviorId];
+
+  if (entry) {
+    if (!entry.file && entry.fallbackTo) {
+      if (typeof _state.setState === "function") _state.setState(entry.fallbackTo);
+      return;
+    }
+    if (entry.file) {
+      const dur = Number.isFinite(entry.duration) && entry.duration > 0
+        ? entry.duration
+        : (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 3000);
+      sendToRenderer("push-behavior", { behaviorId, file: entry.file, duration: dur });
+      return;
+    }
+  }
+
+  // Step 3: behaviorId might be a state name the nudge is asking for directly
+  // (e.g. nudges.js fires `attention` / `yawning` for hydrate / lateNightYawn).
+  if (activeTheme && activeTheme.states && Object.prototype.hasOwnProperty.call(activeTheme.states, behaviorId)) {
+    if (typeof _state.setState === "function") _state.setState(behaviorId);
+  }
+  // else: theme doesn't support this behavior or state at all — silent no-op.
+}
+
+// Currently unused in PAWPAL-1 — overlays expire via the duration timer
+// in renderer.js. Reserved for PAWPAL-2 (focus-mode integration), where
+// entering focus mode will cancel any active nudge overlay immediately
+// rather than waiting for the timer.
+// TODO(PAWPAL-2): wire to focus-mode transitions.
+function popBehavior(behaviorId) {
+  if (!behaviorId) return;
+  sendToRenderer("pop-behavior", { behaviorId });
+}
+
 function setViewportOffsetY(offsetY) {
   const next = Number.isFinite(offsetY) ? Math.max(0, Math.round(offsetY)) : 0;
   if (next === viewportOffsetY) return;
@@ -1028,6 +1101,10 @@ const _stateCtx = {
   get forceEyeResend() { return forceEyeResend; },
   set forceEyeResend(v) { setForceEyeResend(v); },
   get mouseStillSince() { return _tick ? _tick._mouseStillSince : Date.now(); },
+  // PAWPAL-1: state.js's idle variant poller queries Soul mood — exposed
+  // through the same getter style as _tickCtx so it tracks the lazily-created
+  // _soul instance after `setupSoulIPC` runs in advanced mode.
+  get soul() { return _soul; },
   get pendingPermissions() { return pendingPermissions; },
   sendToRenderer,
   sendToHitWin,
@@ -1262,6 +1339,7 @@ getSessionHudWindow = _sessionHud.getWindow;
 // ── HTTP server — delegated to src/server.js ──
 const _serverCtx = {
   get manageClaudeHooksAutomatically() { return manageClaudeHooksAutomatically; },
+  get simpleMode() { return _settingsController.get("simpleMode"); },
   get autoStartWithClaude() { return autoStartWithClaude; },
   get doNotDisturb() { return doNotDisturb; },
   shouldDropForDnd: () => _state.shouldDropForDnd ? _state.shouldDropForDnd() : doNotDisturb,
@@ -1447,8 +1525,12 @@ const _menuCtx = {
   set contextMenuOwner(v) { contextMenuOwner = v; },
   get contextMenu() { return contextMenu; },
   set contextMenu(v) { contextMenu = v; },
-  enableDoNotDisturb: () => enableDoNotDisturb(),
-  disableDoNotDisturb: () => disableDoNotDisturb(),
+  // PAWPAL-1: nudges.shouldFire() reads ctx.isDndEnabled() at fire time, so
+  // an in-flight timer naturally gates correctly when DND flips. Reloading
+  // here is belt-and-suspenders — resets the timer schedule so any cron
+  // interval that was about to fire mid-DND restarts cleanly.
+  enableDoNotDisturb: () => { enableDoNotDisturb(); if (_nudges) _nudges.reload(); },
+  disableDoNotDisturb: () => { disableDoNotDisturb(); if (_nudges) _nudges.reload(); },
   enterMiniViaMenu: () => enterMiniViaMenu(),
   exitMiniMode: () => exitMiniMode(),
   getMiniMode: () => _mini.getMiniMode(),
@@ -1493,6 +1575,35 @@ const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
+
+// ── Nudges scheduler (PAWPAL-1) — wired after _menu so we have `t` for i18n
+//    and after _state via _stateCtx.soul wiring above. The scheduler reads
+//    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
+//    cache stale state. `start()` is called from app.whenReady() below.
+const _nudgesCtx = {
+  getPrefs: () => _settingsController.getSnapshot(),
+  setPrefs: (patch) => {
+    if (!patch || typeof patch !== "object") return;
+    for (const key of Object.keys(patch)) {
+      _settingsController.applyUpdate(key, patch[key]);
+    }
+  },
+  isDndEnabled: () => doNotDisturb,
+  pushBehavior: (id, dur) => pushBehavior(id, dur),
+  showNativeNotification: ({ title, body }) => showNativeNotification({ title, body }),
+  playSound: (name) => playSound(name),
+  getMouseStillSinceMs: () => (_tick && typeof _tick._mouseStillSince === "number" ? _tick._mouseStillSince : Date.now()),
+  // i18n with optional `{name}` substitution (matches existing i18n.js
+  // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
+  // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
+  // stays generic.
+  t: (key, params) => {
+    const tpl = translate(key);
+    if (!params) return tpl;
+    return String(tpl).replace(/\{(\w+)\}/g, (_m, name) => (params[name] != null ? String(params[name]) : ""));
+  },
+};
+const _nudges = require("./nudges")(_nudgesCtx);
 
 // ── Settings subscribers ──
 //
@@ -1683,6 +1794,28 @@ function wireSettingsSubscribers() {
   });
 }
 wireSettingsSubscribers();
+
+// PAWPAL-1: Reload the nudge scheduler whenever the user flips a preset or
+// per-nudge override. Skip reloads that only touch `lastFiredAt` — the
+// scheduler writes there on every fire as bookkeeping, and reloading on each
+// fire would tear down + restart the cron interval mid-tick (functionally
+// fine; wasteful + forces a sync prefs.json write per fire).
+function _nudgesConfigSig(n) {
+  if (!n) return "";
+  // overrides is a small object — JSON is fine and stable enough for diffing.
+  return `${n.preset || ""}|${JSON.stringify(n.overrides || {})}`;
+}
+// Seed from current snapshot so the first fire's lastFiredAt-only diff is
+// correctly skipped — initializing to null would mismatch on first fire and
+// trigger a spurious reload() that resets every cron interval.
+let _lastNudgesConfigSig = _nudgesConfigSig((_settingsController.getSnapshot() || {}).nudges);
+_settingsController.subscribeKey("nudges", (next) => {
+  const sig = _nudgesConfigSig(next);
+  if (sig === _lastNudgesConfigSig) return; // lastFiredAt-only change → bookkeeping
+  _lastNudgesConfigSig = sig;
+  if (_nudges) _nudges.reload();
+});
+
 _settingsController.subscribeKey("shortcuts", (_value, snapshot) => {
   const nextTogglePetShortcut = (snapshot && snapshot.shortcuts && snapshot.shortcuts.togglePet) || null;
   if (nextTogglePetShortcut === lastTogglePetShortcut) return;
@@ -4526,52 +4659,76 @@ if (!gotTheLock) {
     // Auto-updater: setup event handlers (user triggers check via tray menu)
     setupAutoUpdater();
 
-    // ── Soul engine — AI brain for screen observation + chat + diary ──
+    // ── PAWPAL-1: Self-care nudge scheduler + Soul-driven idle variants ──
+    // Scheduler is orthogonal to simpleMode — health nudges (Pomodoro break,
+    // hydrate, long-sit) fire even in pure-pet mode since they don't depend
+    // on the AI brain. Idle variant routing is Soul-dependent and no-ops
+    // gracefully when the soul is absent (ctx.soul.healthy is false).
     try {
-      // Chat window (must be created before speech bubble so it can be referenced)
-      const initChatWindow = require("../soul/chat-window");
-      _chatWindow = initChatWindow({
-        get win() { return win; },
-        get soul() { return _soul; },
-        getNearestWorkArea,
-      });
-
-      const initSpeechBubble = require("../soul/speech-bubble");
-      _speechBubble = initSpeechBubble({
-        get win() { return win; },
-        get petHidden() { return petHidden; },
-        getNearestWorkArea,
-        getHitRectScreen: (bounds) => getHitRectScreen(bounds),
-        onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
-      });
-
-      const initSoulClient = require("../soul/client");
-      _soul = initSoulClient({
-        get win() { return win; },
-        get petHidden() { return petHidden; },
-        speechBubble: _speechBubble,
-        chatWindow: _chatWindow,
-        applyState: (state, svg) => applyState(state, svg || null),
-        resolveDisplayState,
-        getCurrentState: () => _state.getCurrentState(),
-      });
-      _soul.init().then((ok) => {
-        if (ok) console.log("Clawd: Soul engine connected");
-        else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
-      }).catch((err) => {
-        console.warn("Clawd: Soul init failed:", err.message);
-      });
+      _nudges.start();
     } catch (err) {
-      console.warn("Clawd: Soul engine not loaded:", err.message);
+      console.warn("Clawd: nudges.start() failed:", err && err.message);
+    }
+    try {
+      if (_state && typeof _state.startIdleVariantPoll === "function") {
+        _state.startIdleVariantPoll();
+      }
+    } catch (err) {
+      console.warn("Clawd: startIdleVariantPoll() failed:", err && err.message);
     }
 
-    // Setup Soul IPC handlers (diary, config, onboarding)
-    setupSoulIPC();
+    // ── Soul engine — AI brain for screen observation + chat + diary ──
+    // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
+    // loop, no chat window, no onboarding wizard. Toggling simpleMode off in
+    // Settings → General requires an app restart to spin the soul up.
+    if (!_settingsController.get("simpleMode")) {
+      try {
+        // Chat window (must be created before speech bubble so it can be referenced)
+        const initChatWindow = require("../soul/chat-window");
+        _chatWindow = initChatWindow({
+          get win() { return win; },
+          get soul() { return _soul; },
+          getNearestWorkArea,
+        });
 
-    // Show onboarding wizard on first launch
-    if (!_settingsController.get("hasCompletedOnboarding")) {
-      // Delay slightly so the pet window is visible first
-      setTimeout(() => openOnboarding(), 2000);
+        const initSpeechBubble = require("../soul/speech-bubble");
+        _speechBubble = initSpeechBubble({
+          get win() { return win; },
+          get petHidden() { return petHidden; },
+          getNearestWorkArea,
+          getHitRectScreen: (bounds) => getHitRectScreen(bounds),
+          onOpenChat: () => { if (_chatWindow) _chatWindow.open(); },
+        });
+
+        const initSoulClient = require("../soul/client");
+        _soul = initSoulClient({
+          get win() { return win; },
+          get petHidden() { return petHidden; },
+          speechBubble: _speechBubble,
+          chatWindow: _chatWindow,
+          applyState: (state, svg) => applyState(state, svg || null),
+          resolveDisplayState,
+          getCurrentState: () => _state.getCurrentState(),
+        });
+        _soul.init().then((ok) => {
+          if (ok) console.log("Clawd: Soul engine connected");
+          else console.warn("Clawd: Soul engine not available (no clawd-soul found)");
+        }).catch((err) => {
+          console.warn("Clawd: Soul init failed:", err.message);
+        });
+      } catch (err) {
+        console.warn("Clawd: Soul engine not loaded:", err.message);
+      }
+
+      // Setup Soul IPC handlers (diary, config, onboarding)
+      setupSoulIPC();
+
+      // Show onboarding wizard on first launch (advanced mode only — the
+      // wizard talks to the soul HTTP server which is only running here).
+      if (!_settingsController.get("hasCompletedOnboarding")) {
+        // Delay slightly so the pet window is visible first
+        setTimeout(() => openOnboarding(), 2000);
+      }
     }
   });
 
@@ -4583,6 +4740,10 @@ if (!gotTheLock) {
     _perm.cleanup();
     _server.cleanup();
     _updateBubble.cleanup();
+    // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
+    // _state for pushBehavior + DND read-through, so stop them first.
+    if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
+    if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();
     _mini.cleanup();

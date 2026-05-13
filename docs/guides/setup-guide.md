@@ -4,6 +4,8 @@
 
 ## Agent Setup
 
+> **Prerequisite:** Everything in this section requires `AI Features` to be on. Fresh installs default to Simple Mode (no hook auto-registration, no Soul brain) — turn AI Features on in `Settings…` → `General` → `AI Features`, then restart Clawd before following the per-agent instructions below.
+
 **Claude Code** — works out of the box. Hooks are auto-registered on launch. Versioned hooks (`PreCompact`, `PostCompact`, `StopFailure`) are registered only when Clawd can positively detect a compatible Claude Code version; if detection fails (common for packaged macOS launches), Clawd falls back to core hooks and removes stale incompatible versioned hooks automatically.
 
 **Codex CLI** — works out of the box. Clawd auto-registers official Codex hooks in `~/.codex/hooks.json` when Codex is installed, and enables `[features].codex_hooks = true` unless the user explicitly set it to `false`. The official hook path gives live state updates plus real Allow/Deny permission bubbles. JSONL polling of `~/.codex/sessions/` remains as a fallback for hook-disabled sessions and events Codex hooks do not cover.

@@ -401,6 +401,12 @@ const updateRegistry = {
     },
   },
 
+  // simpleMode: pure-pet mode toggle. Persists immediately; the actual gates
+  // (soul boot, hook auto-sync, onboarding window) read it on next app start,
+  // so the user must restart Clawd to see the change. Restart UX hint lives
+  // in i18n key `rowEnableAIFeaturesRestartNote`.
+  simpleMode: requireBoolean("simpleMode"),
+
   // openAtLogin: writes the OS login item entry. Truth lives in the OS
   //   (LaunchAgent on macOS, Registry Run key on Windows, ~/.config/autostart
   //   on Linux). Effect proxies to a deps-injected setter so platform branching
@@ -487,6 +493,10 @@ const updateRegistry = {
   // ── Phase 2/3 placeholders — schema reserves these so applyUpdate accepts them ──
   agents: requirePlainObject("agents"),
   themeOverrides: requirePlainObject("themeOverrides"),
+  // PAWPAL-1: nudge config (preset + per-nudge overrides + lastFiredAt). Shape
+  // is enforced downstream by prefs.SCHEMA.nudges.normalize() — applyUpdate
+  // just gates that the payload is a plain object.
+  nudges: requirePlainObject("nudges"),
   sessionAliases(value, deps = {}) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return { status: "error", message: "sessionAliases must be a plain object" };

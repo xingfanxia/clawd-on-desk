@@ -4,6 +4,8 @@ const core = globalThis.ClawdSettingsCore;
 
 const SIDEBAR_TABS = [
   { id: "general", icon: "\u2699", labelKey: "sidebarGeneral", available: true },
+  // PAWPAL-1: self-care nudge preset + per-nudge overrides + Soul-driven idle info
+  { id: "awareness", icon: "\u{1F441}", labelKey: "sidebarAwareness", available: true },
   { id: "agents", icon: "\u26A1", labelKey: "sidebarAgents", available: true },
   { id: "theme", icon: "\u{1F3A8}", labelKey: "sidebarTheme", available: true },
   { id: "animMap", icon: "\u{1F3AC}", labelKey: "sidebarAnimMap", available: true },
@@ -69,6 +71,7 @@ core.ops.installRenderHooks({
 });
 
 globalThis.ClawdSettingsTabGeneral.init(core);
+globalThis.ClawdSettingsTabAwareness.init(core);
 globalThis.ClawdSettingsTabAgents.init(core);
 globalThis.ClawdSettingsTabTheme.init(core);
 globalThis.ClawdSettingsTabAnimMap.init(core);

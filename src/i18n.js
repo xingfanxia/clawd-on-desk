@@ -151,6 +151,17 @@ const i18n = {
     generatePairingCode: "Generate Pairing Code",
     pairingCodeLabel: "Pairing Code",
     remoteConnected: "Remote: {name}",
+    // PAWPAL-1: native notification copy (coach preset only). See nudges.js
+    // for which nudge fires which key. `{minutes}` is substituted by the t()
+    // wrapper in main.js.
+    nudgePomodoroTitle: "Time for a break",
+    nudgePomodoroBody: "You've been working for {minutes} minutes — stretch and rest your eyes.",
+    nudgeHydrateTitle: "Hydration reminder",
+    nudgeHydrateBody: "Drink some water — your cat says so.",
+    nudgeLongSitTitle: "Time to stand",
+    nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
+    nudgeLateNightTitle: "It's getting late",
+    nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
   },
   zh: {
     size: "大小",
@@ -295,6 +306,15 @@ const i18n = {
     generatePairingCode: "生成配对码",
     pairingCodeLabel: "配对码",
     remoteConnected: "远程: {name}",
+    // PAWPAL-1
+    nudgePomodoroTitle: "该休息了",
+    nudgePomodoroBody: "你已经工作 {minutes} 分钟啦 — 起来伸个懒腰，让眼睛休息一下。",
+    nudgeHydrateTitle: "喝水提醒",
+    nudgeHydrateBody: "记得喝水 — 你的猫这么说的。",
+    nudgeLongSitTitle: "站起来活动",
+    nudgeLongSitBody: "你坐了好一会儿了。起来走两步吧。",
+    nudgeLateNightTitle: "夜深了",
+    nudgeLateNightBody: "考虑收尾吧 — 你的猫困了。",
   },
   ko: {
     size: "크기",
@@ -437,6 +457,16 @@ const i18n = {
     generatePairingCode: "Generate Pairing Code",
     pairingCodeLabel: "Pairing Code",
     remoteConnected: "Remote: {name}",
+    // PAWPAL-1 — Korean translations stub: fall back to English copy for v1.
+    // Localize in a follow-up.
+    nudgePomodoroTitle: "Time for a break",
+    nudgePomodoroBody: "You've been working for {minutes} minutes — stretch and rest your eyes.",
+    nudgeHydrateTitle: "Hydration reminder",
+    nudgeHydrateBody: "Drink some water — your cat says so.",
+    nudgeLongSitTitle: "Time to stand",
+    nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
+    nudgeLateNightTitle: "It's getting late",
+    nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
   },
   ja: {
     size: "サイズ",
@@ -579,6 +609,16 @@ const i18n = {
     generatePairingCode: "Generate Pairing Code",
     pairingCodeLabel: "Pairing Code",
     remoteConnected: "Remote: {name}",
+    // PAWPAL-1 — Japanese translations stub: fall back to English copy for v1.
+    // Localize in a follow-up.
+    nudgePomodoroTitle: "Time for a break",
+    nudgePomodoroBody: "You've been working for {minutes} minutes — stretch and rest your eyes.",
+    nudgeHydrateTitle: "Hydration reminder",
+    nudgeHydrateBody: "Drink some water — your cat says so.",
+    nudgeLongSitTitle: "Time to stand",
+    nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
+    nudgeLateNightTitle: "It's getting late",
+    nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
   },
 };
 

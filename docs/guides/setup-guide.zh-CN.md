@@ -4,6 +4,8 @@
 
 ## Agent 配置说明
 
+> **前置要求**：本节所有内容都假设 `AI Features` 已开启。全新安装默认走 Simple Mode（不自动注册 hooks、不启动 Soul 大脑），需要先在 `Settings…` → `General` → `AI Features` 打开开关并重启 Clawd，再按下面各 agent 的指引操作。
+
 **Claude Code** — 开箱即用。Clawd 启动时会自动注册 hooks。只有在确认 Claude Code 版本兼容时才会注册 versioned hooks（`PreCompact`、`PostCompact`、`StopFailure`）；如果版本无法确认，会自动回退到核心 hooks，并清理旧的不兼容条目。
 
 **Codex CLI** — 开箱即用。Clawd 会在检测到 Codex 时自动注册 official hooks 到 `~/.codex/hooks.json`，并在用户没有显式设置 `codex_hooks = false` 时启用 `[features].codex_hooks = true`。Official hooks 提供实时状态和真实 Allow/Deny 权限气泡；`~/.codex/sessions/` JSONL 轮询保留为 hook 被禁用或 hook 未覆盖事件的 fallback。

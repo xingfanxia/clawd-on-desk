@@ -5,6 +5,22 @@
 const container = document.getElementById("pet-container");
 let clawdEl = document.getElementById("clawd");
 let pendingNext = null;
+
+// PAWPAL-1 — Behavior overlay layer. A separate <img> element above clawdEl
+// that hosts transient APNGs (walk-across nudge, etc.) without disturbing the
+// state machine. Positioned via the same `applyObjectScaleStyle` path as the
+// main element so visual layout matches.
+const behaviorEl = document.createElement("img");
+behaviorEl.id = "clawd-behavior-overlay";
+behaviorEl.style.position = "absolute";
+behaviorEl.style.pointerEvents = "none";
+behaviorEl.style.opacity = "0";
+behaviorEl.style.transition = "opacity 200ms ease";
+behaviorEl.style.zIndex = "10";
+container.appendChild(behaviorEl);
+
+let behaviorActiveTimer = null;
+let behaviorActiveId = null;
 const LOW_POWER_IDLE_PAUSE_MS = 5000;
 const LOW_POWER_PAUSE_STYLE_ID = "clawd-low-power-pause-svg";
 const LOW_POWER_PAUSE_STATES = new Set(["idle", "mini-idle", "dozing"]);
@@ -1142,6 +1158,62 @@ window.electronAPI.onWakeFromDoze(() => {
     } catch (e) {}
   }
 });
+
+// --- PAWPAL-1: Behavior overlay layer (transient APNGs above the state machine) ---
+if (window.electronAPI && typeof window.electronAPI.onPushBehavior === "function") {
+  window.electronAPI.onPushBehavior(({ behaviorId, file, duration }) => {
+    if (!file) return;
+    // _assetsPath is undefined until initWithConfig() runs. If a behavior
+    // push races ahead of the first theme-config IPC, just drop it — the
+    // user can't see the overlay anyway since clawdEl isn't styled yet.
+    if (!_assetsPath) return;
+    // Mini mode flips clawdEl horizontally and uses a different viewBox.
+    // Variant routing for mini overlays is out of scope for v1, so skip the
+    // push during mini mode rather than ship a misaligned overlay.
+    if (typeof _inMiniMode === "boolean" && _inMiniMode) return;
+    // Cancel any in-flight overlay (single behavior at a time in v1)
+    if (behaviorActiveTimer) {
+      clearTimeout(behaviorActiveTimer);
+      behaviorActiveTimer = null;
+    }
+    behaviorActiveId = behaviorId;
+    // Use getAssetUrl so external themes (which load SVGs from cache but
+    // APNGs from the source dir) resolve the file correctly.
+    behaviorEl.src = getAssetUrl(file);
+    // Reuse the same scaling/positioning as clawdEl so the overlay aligns
+    applyObjectScaleStyle(behaviorEl, file, null);
+    requestAnimationFrame(() => { behaviorEl.style.opacity = "1"; });
+    behaviorActiveTimer = setTimeout(() => {
+      behaviorEl.style.opacity = "0";
+      const fadingId = behaviorActiveId;
+      // Clear src after the fade so the GPU can drop the texture
+      setTimeout(() => {
+        if (behaviorActiveId === fadingId) {
+          behaviorEl.src = "";
+          behaviorActiveId = null;
+        }
+      }, 250);
+      behaviorActiveTimer = null;
+    }, duration || 3000);
+  });
+}
+
+if (window.electronAPI && typeof window.electronAPI.onPopBehavior === "function") {
+  window.electronAPI.onPopBehavior(({ behaviorId }) => {
+    if (behaviorActiveTimer && behaviorActiveId === behaviorId) {
+      clearTimeout(behaviorActiveTimer);
+      behaviorActiveTimer = null;
+      behaviorEl.style.opacity = "0";
+      const fadingId = behaviorActiveId;
+      setTimeout(() => {
+        if (behaviorActiveId === fadingId) {
+          behaviorEl.src = "";
+          behaviorActiveId = null;
+        }
+      }, 250);
+    }
+  });
+}
 
 // --- Initial frame: always go through swapToFile so the right channel and theme scaling apply ---
 if (!currentDisplayedSvg && _idleFollowSvg) {

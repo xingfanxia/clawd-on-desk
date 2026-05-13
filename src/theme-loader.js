@@ -853,6 +853,57 @@ function validateTheme(cfg) {
     }
   }
 
+  // Behavior layer (PAWPAL-1) — overlays that compose over state animations.
+  // Schema: behaviors.<id> = { file?: string, duration?: number, fallbackTo?: stateName }
+  if (cfg.behaviors !== undefined) {
+    if (!_isPlainObject(cfg.behaviors)) {
+      errors.push("behaviors must be an object when present");
+    } else {
+      for (const [behaviorId, entry] of Object.entries(cfg.behaviors)) {
+        if (!_isPlainObject(entry)) {
+          errors.push(`behaviors.${behaviorId} must be an object`);
+          continue;
+        }
+        if (entry.file !== undefined && (typeof entry.file !== "string" || !entry.file)) {
+          errors.push(`behaviors.${behaviorId}.file must be a non-empty string when present`);
+        }
+        if (entry.duration !== undefined && (!Number.isFinite(entry.duration) || entry.duration <= 0)) {
+          errors.push(`behaviors.${behaviorId}.duration must be a positive number when present`);
+        }
+        if (entry.fallbackTo !== undefined) {
+          if (typeof entry.fallbackTo !== "string" || !entry.fallbackTo) {
+            errors.push(`behaviors.${behaviorId}.fallbackTo must be a non-empty string when present`);
+          } else if (cfg.states && !Object.prototype.hasOwnProperty.call(cfg.states, entry.fallbackTo)) {
+            errors.push(`behaviors.${behaviorId}.fallbackTo target "${entry.fallbackTo}" is not a known state`);
+          }
+        }
+        if (entry.file === undefined && entry.fallbackTo === undefined) {
+          errors.push(`behaviors.${behaviorId} must define either file or fallbackTo`);
+        }
+      }
+    }
+  }
+
+  // Soul-driven idle variants (PAWPAL-1) — alias map of variant name → state files.
+  // Schema: idleVariants.<name> = string[] (file array, same shape as states.idle)
+  if (cfg.idleVariants !== undefined) {
+    if (!_isPlainObject(cfg.idleVariants)) {
+      errors.push("idleVariants must be an object when present");
+    } else {
+      for (const [variantName, files] of Object.entries(cfg.idleVariants)) {
+        if (!Array.isArray(files) || files.length === 0) {
+          errors.push(`idleVariants.${variantName} must be a non-empty array of files`);
+          continue;
+        }
+        for (const f of files) {
+          if (typeof f !== "string" || !f) {
+            errors.push(`idleVariants.${variantName}: all entries must be non-empty strings`);
+          }
+        }
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -1708,6 +1759,37 @@ function mergeDefaults(raw, themeId, isBuiltin) {
   if (Array.isArray(theme.wideHitboxFiles)) theme.wideHitboxFiles = theme.wideHitboxFiles.map(bn);
   if (Array.isArray(theme.sleepingHitboxFiles)) theme.sleepingHitboxFiles = theme.sleepingHitboxFiles.map(bn);
 
+  // PAWPAL-1: behaviors default to empty (legacy themes that don't declare any
+  // simply have no behavior overlays — nudges fall back to notification state).
+  // File names get basename-stripped to match the existing path-traversal guard.
+  if (_isPlainObject(raw.behaviors)) {
+    theme.behaviors = {};
+    for (const [behaviorId, entry] of Object.entries(raw.behaviors)) {
+      if (!_isPlainObject(entry)) continue;
+      const out = {};
+      if (typeof entry.file === "string" && entry.file) out.file = bn(entry.file);
+      if (Number.isFinite(entry.duration) && entry.duration > 0) out.duration = entry.duration;
+      if (typeof entry.fallbackTo === "string" && entry.fallbackTo) out.fallbackTo = entry.fallbackTo;
+      theme.behaviors[behaviorId] = out;
+    }
+  } else {
+    theme.behaviors = {};
+  }
+
+  // PAWPAL-1: idleVariants default to empty (legacy themes use plain states.idle).
+  if (_isPlainObject(raw.idleVariants)) {
+    theme.idleVariants = {};
+    for (const [variantName, files] of Object.entries(raw.idleVariants)) {
+      if (Array.isArray(files)) {
+        theme.idleVariants[variantName] = files
+          .filter((f) => typeof f === "string" && f)
+          .map(bn);
+      }
+    }
+  } else {
+    theme.idleVariants = {};
+  }
+
   return theme;
 }
 
@@ -1864,6 +1946,7 @@ module.exports = {
   init,
   discoverThemes,
   loadTheme,
+  validateTheme,
   validateThemeShape,
   getActiveTheme,
   getThemeMetadata,

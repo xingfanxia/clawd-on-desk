@@ -28,7 +28,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 3;
 
 // ── Schema ──
 // Each field has: type, default OR defaultFactory, optional enum/normalize/validate.
@@ -154,6 +154,46 @@ const SCHEMA = {
   // Soul engine: tracks whether user has gone through the onboarding wizard
   // (gates first-launch onboarding window in main.js whenReady).
   hasCompletedOnboarding: { type: "boolean", default: false },
+  // Default-mode gate. true = pure desktop pet (no soul, no onboarding wizard,
+  // no agent hook auto-install). false = full advanced mode. Fresh installs get
+  // true; existing users who already engaged AI features migrate to false (see
+  // migrate() v1 → v2). Settings → General has a single toggle to flip this.
+  simpleMode: { type: "boolean", default: true },
+  // PAWPAL-1: self-care nudges configuration. `preset` selects an aggression
+  // level (quiet/normal/coach); `overrides` per-nudge override the preset
+  // defaults; `lastFiredAt` is internal bookkeeping for detector-based nudges
+  // (longSit, lateNightYawn) so we can rate-limit re-fires across restarts.
+  nudges: {
+    type: "object",
+    defaultFactory: () => ({
+      preset: "normal",
+      overrides: {},
+      lastFiredAt: {},
+    }),
+    normalize: (v) => {
+      if (!v || typeof v !== "object") {
+        return { preset: "normal", overrides: {}, lastFiredAt: {} };
+      }
+      const preset = ["quiet", "normal", "coach"].includes(v.preset) ? v.preset : "normal";
+      // Strip prototype-pollution sentinels from any user-controllable map.
+      // JSON.parse('{"__proto__":{...}}') produces an own-property `__proto__`
+      // that survives a shallow copy. Stored prefs are read-back as plain JSON
+      // so this is currently latent, but defending here keeps any future
+      // for...in / Object.assign consumer safe.
+      const _safeMap = (raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+        const out = {};
+        for (const k of Object.keys(raw)) {
+          if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+          out[k] = raw[k];
+        }
+        return out;
+      };
+      const overrides = _safeMap(v.overrides);
+      const lastFiredAt = _safeMap(v.lastFiredAt);
+      return { preset, overrides, lastFiredAt };
+    },
+  },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));
@@ -210,6 +250,16 @@ function validate(raw) {
 // v0 → v1: add `version`, `agents`, `themeOverrides` fields. Existing fields
 //   stay as-is and get re-validated downstream. Pre-existing prefs files have
 //   no `version` key — that's the v0 marker.
+// v1 → v2: introduce `simpleMode`. Schema default is true (fresh installs are
+//   pure-pet). Existing users who already engaged AI features (onboarding
+//   completed OR ~/.clawd/{soul.json,config.json} on disk) are flipped to
+//   false to preserve their advanced setup. Fresh-install path bypasses
+//   migrate() entirely (load() returns getDefaults() on ENOENT), so this
+//   block only runs for users with a pre-existing prefs file.
+// v2 → v3: introduce `nudges` (PAWPAL-1). Existing users get the same
+//   defaults as fresh installs — preset "normal", no overrides, empty
+//   lastFiredAt — so the new self-care nudge layer comes online silently
+//   without surprising anyone with a "coach" preset they never asked for.
 function migrate(raw) {
   if (!raw || typeof raw !== "object") return raw;
   const out = { ...raw };
@@ -241,6 +291,35 @@ function migrate(raw) {
     if (out.updateBubbleAutoCloseSeconds === undefined) {
       out.updateBubbleAutoCloseSeconds = out.hideBubbles ? 0 : UPDATE_DEFAULT_SECONDS;
     }
+  }
+  // v1 → v2: backfill simpleMode for existing users. Heuristic: any prior
+  // engagement with AI features (onboarding flag, soul state file, or soul
+  // config file) keeps the user in advanced mode. Otherwise default to simple.
+  if ((typeof out.version !== "number" ? 0 : out.version) < 2) {
+    if (typeof out.simpleMode !== "boolean") {
+      const homeDir = require("os").homedir();
+      const soulStatePath = path.join(homeDir, ".clawd", "soul.json");
+      const soulConfigPath = path.join(homeDir, ".clawd", "config.json");
+      const onboardingDone = out.hasCompletedOnboarding === true;
+      let soulFilesPresent = false;
+      try {
+        soulFilesPresent = fs.existsSync(soulStatePath) || fs.existsSync(soulConfigPath);
+      } catch {
+        soulFilesPresent = false;
+      }
+      out.simpleMode = !(onboardingDone || soulFilesPresent);
+    }
+    out.version = 2;
+  }
+  // v2 → v3: backfill `nudges` (PAWPAL-1) with the same defaults as a fresh
+  // install. The schema-default factory would also fill it during validate(),
+  // but doing it explicitly here keeps migration self-contained and makes the
+  // version bump observable to the persist-on-load path in load().
+  if ((typeof out.version !== "number" ? 0 : out.version) < 3) {
+    if (out.nudges === undefined) {
+      out.nudges = { preset: "normal", overrides: {}, lastFiredAt: {} };
+    }
+    out.version = 3;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
@@ -532,7 +611,19 @@ function load(prefsPath) {
     return { snapshot: validate(raw), locked: true };
   }
   const migrated = migrate(raw);
-  return { snapshot: validate(migrated), locked: false };
+  const validated = validate(migrated);
+  // If migration bumped the version, persist immediately so the heuristic-driven
+  // backfill (e.g. simpleMode in v1→v2) doesn't re-run every boot until the user
+  // happens to change a setting. Best-effort — a save failure here just falls
+  // back to the lazy-persist behaviour and isn't worth surfacing.
+  if (incomingVersion < CURRENT_VERSION) {
+    try {
+      save(prefsPath, validated);
+    } catch (err) {
+      console.warn("Clawd: failed to persist migrated prefs:", err && err.message);
+    }
+  }
+  return { snapshot: validated, locked: false };
 }
 
 function save(prefsPath, snapshot) {

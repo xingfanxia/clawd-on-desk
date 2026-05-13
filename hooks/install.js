@@ -759,7 +759,7 @@ function reconcileVersionedHooks(settings, supportedEvents, versionInfo) {
  * @returns {{ added: number, skipped: number, updated: number, removed: number, version: string|null, versionStatus: "known"|"unknown", versionSource: string|null }}
  */
 function registerHooks(options = {}) {
-  const settingsPath = options.settingsPath || path.join(os.homedir(), ".claude", "settings.json");
+  const settingsPath = options.settingsPath || path.join(os.homedir(), ".claude", "settings.local.json");
   const hookPort = getHookServerPort(options.port);
   const hookScript = asarUnpackedPath(path.resolve(__dirname, "clawd-hook.js").replace(/\\/g, "/"));
   const platform = options.platform || process.platform;
@@ -1276,7 +1276,7 @@ async function unregisterHooksAsync(options = {}) {
  * @returns {boolean} true if a hook was removed
  */
 function unregisterAutoStart() {
-  const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
+  const settingsPath = path.join(os.homedir(), ".claude", "settings.local.json");
   let settings;
   try {
     settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
@@ -1315,7 +1315,7 @@ function unregisterAutoStart() {
  * @returns {boolean}
  */
 function isAutoStartRegistered() {
-  const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
+  const settingsPath = path.join(os.homedir(), ".claude", "settings.local.json");
   try {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     const arr = settings.hooks && settings.hooks.SessionStart;

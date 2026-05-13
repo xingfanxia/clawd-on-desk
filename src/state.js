@@ -115,6 +115,15 @@ let WIDE_SVGS = new Set();
 let SLEEPING_SVGS = new Set();
 let currentHitBox = HIT_BOXES.default;
 
+// ── PAWPAL-1: idle variant tracking (must be declared before refreshTheme) ──
+// While the pet is in `idle`, periodically fetch Soul mood and pick a
+// `theme.idleVariants[<name>]` to swap into. Async + interval-based so the
+// rest of the (synchronous) state machine stays sync. Hysteresis (30s) keeps
+// the cat from flapping between expressions when scores hover near a boundary.
+let _lastIdleVariant = "neutral";
+let _lastVariantSwitchAt = 0;
+let _idleVariantTimer = null;
+
 // ── State machine internal ──
 let currentState = "idle";
 let previousState = "idle";
@@ -241,6 +250,11 @@ function resolveHitBoxForSvg(svg) {
 
 function refreshTheme() {
   theme = ctx.theme;
+  // PAWPAL-1: reset idle variant tracking on theme switch — variants are
+  // theme-scoped, and a "happy" variant from theme A shouldn't pin in place
+  // when theme B (which may not even define idleVariants) loads.
+  _lastIdleVariant = "neutral";
+  _lastVariantSwitchAt = 0;
   SVG_IDLE_FOLLOW = theme.states.idle[0];
   STATE_SVGS = { ...theme.states };
   STATE_BINDINGS = buildStateBindings(theme);
@@ -566,6 +580,71 @@ function startWakePoll() {
 
 function stopWakePoll() {
   if (wakePollTimer) { clearInterval(wakePollTimer); wakePollTimer = null; }
+}
+
+// ── PAWPAL-1: Soul-driven idle variant routing ──
+// State (declared above so refreshTheme() at module-init can read it)
+const IDLE_VARIANT_HYSTERESIS_MS = 30_000;
+const IDLE_VARIANT_POLL_MS = 60_000;
+
+function pickIdleVariantName(mood) {
+  if (!mood) return "neutral";
+  const energy = Number(mood.energy);
+  const affection = Number(mood.affection);
+  const e = Number.isFinite(energy) ? energy : 0.5;
+  const a = Number.isFinite(affection) ? affection : 0.5;
+  const score = e * 0.6 + a * 0.4;
+  if (score > 0.7) return "happy";
+  if (score < 0.3) return "dozing";
+  return "neutral";
+}
+
+async function applyIdleVariantOnce() {
+  if (currentState !== "idle") return;
+  if (!theme || !theme.idleVariants || Object.keys(theme.idleVariants).length === 0) return;
+  if (!ctx.soul || typeof ctx.soul.getMood !== "function") return;
+  if (!ctx.soul.healthy) return;
+
+  let payload = null;
+  try {
+    payload = await ctx.soul.getMood();
+  } catch {
+    payload = null;
+  }
+  if (!payload || !payload.mood) return;
+
+  let pick = pickIdleVariantName(payload.mood);
+  const now = Date.now();
+  if (pick !== _lastIdleVariant && (now - _lastVariantSwitchAt) < IDLE_VARIANT_HYSTERESIS_MS) {
+    pick = _lastIdleVariant; // hold previous variant
+  } else if (pick !== _lastIdleVariant) {
+    _lastIdleVariant = pick;
+    _lastVariantSwitchAt = now;
+  }
+
+  if (pick === "neutral") return; // plain states.idle is the default — let it stand
+  const files = theme.idleVariants[pick];
+  if (!Array.isArray(files) || files.length === 0) return;
+
+  // Re-check state right before applying — async fetch may have raced past idle.
+  if (currentState !== "idle") return;
+  // Randomize across the variant's file array so multi-file variants rotate
+  // naturally — matches the convention used by resolveVisualBinding for states.
+  applyState("idle", pickStateFile(files));
+}
+
+function startIdleVariantPoll() {
+  if (_idleVariantTimer) return;
+  _idleVariantTimer = setInterval(() => {
+    applyIdleVariantOnce().catch(() => {});
+  }, IDLE_VARIANT_POLL_MS);
+}
+
+function stopIdleVariantPoll() {
+  if (_idleVariantTimer) {
+    clearInterval(_idleVariantTimer);
+    _idleVariantTimer = null;
+  }
 }
 
 function wakeFromDoze() {
@@ -1752,6 +1831,9 @@ return {
   shouldDropForDnd,
   enableDoNotDisturb, disableDoNotDisturb,
   startStaleCleanup, stopStaleCleanup, startWakePoll, stopWakePoll,
+  startIdleVariantPoll, stopIdleVariantPoll,
+  // Test hook — exposes the score → variant decision in isolation
+  _pickIdleVariantNameForTesting: pickIdleVariantName,
   getSvgOverride, cleanStaleSessions, startStartupRecovery, refreshTheme,
   detectRunningAgentProcesses, buildSessionSnapshot,
   emitSessionSnapshot, broadcastSessionSnapshot, getLastSessionSnapshot,
