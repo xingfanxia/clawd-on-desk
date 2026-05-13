@@ -476,6 +476,59 @@ describe("workspace-detector: start/stop lifecycle", () => {
     assert.strictEqual(detector.getCurrentApp(), null);
     detector.stop();
   });
+
+  // Late-capture guard: in production captureFrontApp is async (osascript
+  // subprocess + 500ms timeout). If the detector is stopped between the
+  // tick scheduling the probe and the probe's callback firing, the
+  // `if (!intervalHandle) return;` guard drops the result. Without it, a
+  // late capture could promote a candidate after stop() and emit a stale
+  // event to subscribers (a real-world race during app quit).
+  //
+  // We use a `mode` switch (immediate vs deferred) so the SAME captureFrontApp
+  // reference passed to the detector at construction time can change
+  // behavior partway through the test — needed because the detector binds
+  // ctx.captureFrontApp at init, not per-call.
+  it("drops a late captureFrontApp callback that fires after stop()", () => {
+    let mode = "immediate";
+    let immediateName = "Cursor";
+    let deferredCb = null;
+    const captureFrontApp = (cb) => {
+      if (mode === "immediate") cb(immediateName);
+      else deferredCb = cb;
+    };
+    const timers = makeFakeTimers();
+    const detector = initWorkspaceDetector({
+      getPrefs: () => buildPrefs(),
+      osPermission: makeOsPermissionStub("granted").osPermission,
+      captureFrontApp,
+      log: () => {},
+      now: timers.now,
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
+    });
+    // First confirm via the immediate path so we have a known confirmedApp.
+    detector.start();
+    timers.tick(); timers.tick();
+    const before = detector.getCurrentApp();
+    assert.deepStrictEqual(before && before.name, "Cursor");
+
+    // Switch to deferred mode. Each tick now schedules a probe whose
+    // callback (deferredCb) we hold; firing it later simulates osascript
+    // returning after the detector was already stopped.
+    mode = "deferred";
+    const seen = [];
+    detector.onAppChange((evt) => seen.push(evt.name));
+    timers.tick(); // schedules deferred probe
+    timers.tick(); // overwrites deferredCb with the latest pending probe
+
+    detector.stop();
+    // Fire the held callback AFTER stop. The guard must drop it.
+    assert.strictEqual(typeof deferredCb, "function", "deferred callback should have been captured");
+    deferredCb("Slack");
+    assert.deepStrictEqual(seen, [], "late capture must not emit onAppChange after stop()");
+    const after = detector.getCurrentApp();
+    assert.deepStrictEqual(after && after.name, "Cursor", "late capture must not mutate confirmedApp");
+  });
 });
 
 // ── Constructor argument validation ──────────────────────────────────────
@@ -499,5 +552,69 @@ describe("workspace-detector: ctx validation", () => {
       getPrefs: () => ({}),
       osPermission: { isGranted: () => "granted" },
     }), /captureFrontApp/);
+  });
+
+  // Loud-fail at init when timer plumbing is half-wired. Prevents tests
+  // (or future callers) from mixing real and injected timers, which would
+  // silently leak handles on stop().
+  it("throws when setInterval is provided without clearInterval", () => {
+    assert.throws(() => initWorkspaceDetector({
+      getPrefs: () => ({}),
+      osPermission: { isGranted: () => "granted" },
+      captureFrontApp: () => {},
+      setInterval: () => 1,
+    }), /setInterval and ctx\.clearInterval must be provided together/);
+  });
+
+  it("throws when clearInterval is provided without setInterval", () => {
+    assert.throws(() => initWorkspaceDetector({
+      getPrefs: () => ({}),
+      osPermission: { isGranted: () => "granted" },
+      captureFrontApp: () => {},
+      clearInterval: () => {},
+    }), /setInterval and ctx\.clearInterval must be provided together/);
+  });
+});
+
+// ── front-app wrapper smoke tests (PAWPAL-2 review #7) ───────────────────
+// captureFrontApp is currently exercised only in production by the
+// detector and permission.js. These tests pin the wrapper's contract: it
+// trims whitespace on success, and returns null on error. Both behaviors
+// are load-bearing for upstream callers (workspace-detector treats null
+// as "no observation this tick"; permission.js skips focus restore on
+// null).
+describe("front-app: captureFrontApp wrapper contract", () => {
+  const { captureFrontApp } = require("../src/lib/front-app");
+
+  it("trims whitespace from osascript stdout and forwards to cb", () => {
+    const stub = (_cmd, _args, _opts, cb) => cb(null, "  Cursor  \n", "");
+    let received;
+    captureFrontApp(
+      (name) => { received = name; },
+      { platform: "darwin", execFileOverride: stub },
+    );
+    assert.strictEqual(received, "Cursor");
+  });
+
+  it("forwards null to cb when execFile errors (timeout / not-authorized / etc.)", () => {
+    const stub = (_cmd, _args, _opts, cb) => cb(new Error("timeout"), "", "");
+    let received = "sentinel";
+    captureFrontApp(
+      (name) => { received = name; },
+      { platform: "darwin", execFileOverride: stub },
+    );
+    assert.strictEqual(received, null);
+  });
+
+  it("short-circuits to cb(null) on non-mac platforms without spawning anything", () => {
+    let spawnCount = 0;
+    const stub = () => { spawnCount += 1; };
+    let received = "sentinel";
+    captureFrontApp(
+      (name) => { received = name; },
+      { platform: "linux", execFileOverride: stub },
+    );
+    assert.strictEqual(received, null);
+    assert.strictEqual(spawnCount, 0, "non-mac path must NOT spawn");
   });
 });

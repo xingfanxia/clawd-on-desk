@@ -3440,8 +3440,9 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
 });
 
 // ── Workspace-awareness detector (PAWPAL-2 Task 4) ──
-// Polls the frontmost macOS app every 5s, debounces app changes (Cmd+Tab
-// spam → at most one fire per 5s of stability), and routes app name →
+// Polls the frontmost macOS app every DEFAULT_POLL_INTERVAL_MS (5000ms
+// today), debounces app changes (Cmd+Tab spam → at most one fire per
+// DEFAULT_DEBOUNCE_WINDOW_MS of stability), and routes app name →
 // workspace category via `prefs.workspaceAwareness.activeApp.categoryRules`.
 // Pure signal source — does NOT trigger any behaviors / nudges / state
 // changes here; later PAWPAL-2 tasks (7, 8) consume `getActiveApp()` /
@@ -4866,10 +4867,11 @@ if (!gotTheLock) {
     // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
     // _state for pushBehavior + DND read-through, so stop them first.
     if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
-    // PAWPAL-2 Task 4: stop the workspace-detector interval before quit so we
-    // don't leak a 5s pending tick into shutdown. Detector is a pure signal
-    // source, so stop ordering vs _state/_nudges doesn't matter — anywhere
-    // before the loop tears down is fine.
+    // PAWPAL-2 Task 4: stop the workspace-detector interval before quit so
+    // we don't leak a pending poll tick (DEFAULT_POLL_INTERVAL_MS) into
+    // shutdown. Detector is a pure signal source, so stop ordering vs
+    // _state/_nudges doesn't matter — anywhere before the loop tears down
+    // is fine.
     if (_workspaceDetector && typeof _workspaceDetector.stop === "function") _workspaceDetector.stop();
     if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();

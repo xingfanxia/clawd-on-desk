@@ -21,6 +21,11 @@
 // metacharacter risk. Do NOT switch to the shell-spawning variant or
 // template the argv from user input.
 
+// `child_process` is required unconditionally even though `captureFrontApp`
+// short-circuits to `cb(null)` on non-macOS. The platform check is per-call
+// (so an injected `platform: "darwin"` opt at test time still spawns the
+// stub), not per-module. A single require at module load is cheap and
+// matches what `src/permission.js` was doing before the extraction.
 const { execFile: defaultExecFile } = require("child_process");
 
 const OSASCRIPT_TIMEOUT_MS = 500;
