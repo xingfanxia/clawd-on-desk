@@ -743,15 +743,23 @@ function pushBehavior(behaviorId, durationMs) {
   // else: theme doesn't support this behavior or state at all — silent no-op.
 }
 
-// Currently unused in PAWPAL-1 — overlays expire via the duration timer
-// in renderer.js. Reserved for PAWPAL-2 (focus-mode integration), where
-// entering focus mode will cancel any active nudge overlay immediately
-// rather than waiting for the timer.
-// TODO(PAWPAL-2): wire to focus-mode transitions.
+// Removes an active behavior overlay layer immediately, ahead of its
+// natural duration-timer expiry. Wired in PAWPAL-2 Task 9 to the
+// workspace-detector's focus-enter transitions (non-focus → code/creative)
+// so the user doesn't have to wait for a lingering nudge overlay when they
+// pivot into deep work. Safe to call when no overlay is active — renderer
+// no-ops on unknown behaviorId.
 function popBehavior(behaviorId) {
   if (!behaviorId) return;
   sendToRenderer("pop-behavior", { behaviorId });
 }
+
+// PAWPAL-2 Task 9 — focus-enter overlay-cancel predicate lives in its own
+// module so unit tests don't have to boot main.js (Electron entry point).
+// See src/lib/focus-overlay.js for the rule definition. Used by the
+// workspace-detector onAppChange subscriber wired further down in the
+// `whenReady` block.
+const { shouldCancelFocusOverlays } = require("./lib/focus-overlay");
 
 function setViewportOffsetY(offsetY) {
   const next = Number.isFinite(offsetY) ? Math.max(0, Math.round(offsetY)) : 0;
@@ -3531,6 +3539,43 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
       // eslint-disable-next-line no-console
       console.warn(`[workspace-detector] ${msg}`, (err && err.message) || err || "");
     },
+  });
+}
+
+// PAWPAL-2 Task 9 — focus-enter overlay cancel.
+//
+// Subscribe to the workspace-detector's confirmed app changes and pop any
+// active nudge overlay layer ("walkAcross" / "attention") the moment the
+// user transitions INTO a focus app (code / creative). Without this, the
+// user has to wait out the overlay's duration timer when they pivot into
+// deep work — feels like the pet is fighting them.
+//
+// Why a fresh subscription (vs folding into long-window-tracker's): keeps
+// the orthogonality invariant. long-window-tracker reads onAppChange to
+// emit a nudge (a behavior-producer). This subscriber reads onAppChange to
+// CANCEL a behavior (a behavior-consumer). Mixing the two would couple
+// long-window-tracker's lifecycle to overlay-cancel concerns it has no
+// reason to know about.
+//
+// `popBehavior` is safe on no-active-overlay (renderer no-ops on unknown
+// behaviorId), and the subscription is silent when the detector itself
+// isn't running (prefs/permission gates closed → no onAppChange fires).
+{
+  let _lastWorkspaceCategory = null;
+  _workspaceDetector.onAppChange((appInfo) => {
+    try {
+      const newCategory = appInfo && appInfo.category;
+      if (shouldCancelFocusOverlays(_lastWorkspaceCategory, newCategory)) {
+        popBehavior("walkAcross");
+        popBehavior("attention");
+      }
+      _lastWorkspaceCategory = newCategory;
+    } catch (err) {
+      console.warn(
+        "Clawd: workspace focus-enter overlay-cancel failed:",
+        err && err.message
+      );
+    }
   });
 }
 
