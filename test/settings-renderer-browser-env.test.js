@@ -20,6 +20,7 @@ const DOCTOR_IPC = path.join(SRC_DIR, "doctor-ipc.js");
 const TAB_MODULES = [
   path.join(SRC_DIR, "settings-tab-general.js"),
   path.join(SRC_DIR, "settings-tab-agents.js"),
+  path.join(SRC_DIR, "settings-tab-awareness.js"),
   path.join(SRC_DIR, "settings-tab-theme.js"),
   path.join(SRC_DIR, "settings-tab-anim-map.js"),
   path.join(SRC_DIR, "settings-tab-anim-overrides.js"),

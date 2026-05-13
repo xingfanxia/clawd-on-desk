@@ -497,6 +497,12 @@ const updateRegistry = {
   // is enforced downstream by prefs.SCHEMA.nudges.normalize() — applyUpdate
   // just gates that the payload is a plain object.
   nudges: requirePlainObject("nudges"),
+  // PAWPAL-2 Task 10: workspace-awareness config (master enable + activeApp +
+  // systemMonitor + longWindow sub-blocks). Same pattern as `nudges` — the
+  // detailed shape is enforced downstream by prefs.SCHEMA.workspaceAwareness
+  // .normalize() (drops prototype pollution, validates category whitelist,
+  // rejects junk thresholds), so applyUpdate just gates plain-object payload.
+  workspaceAwareness: requirePlainObject("workspaceAwareness"),
   sessionAliases(value, deps = {}) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return { status: "error", message: "sessionAliases must be a plain object" };
