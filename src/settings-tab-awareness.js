@@ -106,11 +106,17 @@
   // granted) from "revoked" (was granted, then revoked in System Settings).
   // Persisted in localStorage so a re-open of Settings still distinguishes
   // the two. Plain { kind: bool }.
+  //
+  // NOTE: clawd-on-desk enforces a single Settings window (via SettingsWindow
+  // controller), so cross-window localStorage sync is not needed. If that
+  // invariant changes, add a `window.addEventListener("storage", reload)` here.
   const WAS_GRANTED_STORAGE_KEY = "clawd.settings.awareness.wasGranted.v1";
   let wasGranted = loadWasGranted();
   // Modal state (category rules editor). null when closed.
   let categoryRulesModal = null;
-  // Track visibilitychange listener so we can clean up on tab switch.
+  // Re-register guard — body self-gates on state.activeTab so the listener is
+  // safe to register once per Settings-window lifetime. Matches sibling-tab
+  // "register-once, never clean up" pattern (cf. settings-tab-general.js).
   let visibilityListener = null;
 
   function t(key) { return helpers.t(key); }
@@ -129,14 +135,22 @@
           inputMonitoring: parsed.inputMonitoring === true,
         };
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn(
+        `[awareness] could not load wasGranted from localStorage: ${(err && err.message) || err}`
+      );
+    }
     return { accessibility: false, inputMonitoring: false };
   }
 
   function saveWasGranted() {
     try {
       localStorage.setItem(WAS_GRANTED_STORAGE_KEY, JSON.stringify(wasGranted));
-    } catch (_) {}
+    } catch (err) {
+      console.warn(
+        `[awareness] could not persist wasGranted to localStorage: ${(err && err.message) || err}`
+      );
+    }
   }
 
   function clearChildren(el) {
@@ -913,8 +927,14 @@
     saveBtn.addEventListener("click", () => {
       const parsed = parseCategoryRulesText(categoryRulesModal.text);
       if (!parsed.ok) {
+        // In-place error surfacing — DON'T remount. mountCategoryRulesModal
+        // rebuilds the entire modal DOM, which steals focus from the
+        // textarea and resets the cursor position. The live-input handler
+        // and the dedicated updaters already cover this surface; reuse them
+        // so the user can fix the typo without losing their place.
         categoryRulesModal.error = parsed;
-        mountCategoryRulesModal();
+        updateModalErrorRegion();
+        updateModalSaveDisabled();
         return;
       }
       setCategoryRules(parsed.value);

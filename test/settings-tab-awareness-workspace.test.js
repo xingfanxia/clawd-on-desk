@@ -25,7 +25,7 @@ const vm = require("node:vm");
 
 const SRC_DIR = path.join(__dirname, "..", "src");
 const TAB_FILE = path.join(SRC_DIR, "settings-tab-awareness.js");
-const PREFS_FILE = path.join(SRC_DIR, "prefs.js");
+const prefs = require("../src/prefs");
 
 function loadAwarenessTabModule() {
   const context = {
@@ -232,23 +232,39 @@ describe("settings-tab-awareness (Workspace Awareness — PAWPAL-2 Task 10)", ()
   describe("constants parity with prefs.js", () => {
     it("WORKSPACE_CATEGORIES matches prefs.js (defensive against drift)", () => {
       const h = loadAwarenessTabModule();
-      // Read prefs.js source and extract the WORKSPACE_CATEGORIES literal.
-      const prefsSrc = fs.readFileSync(PREFS_FILE, "utf8");
-      const m = prefsSrc.match(/WORKSPACE_CATEGORIES\s*=\s*\[([^\]]+)\]/);
-      assert.ok(m, "could not find WORKSPACE_CATEGORIES in prefs.js");
-      const fromPrefs = m[1]
-        .split(",")
-        .map((s) => s.trim().replace(/^"/, "").replace(/"$/, ""))
-        .filter((s) => s.length > 0);
-      assert.deepEqual(h.WORKSPACE_CATEGORIES.slice().sort(), fromPrefs.slice().sort());
+      // require() the prefs module directly rather than regex-scraping the
+      // source — the prior approach was fragile to whitespace/formatting
+      // changes inside prefs.js. WORKSPACE_CATEGORIES is exported from
+      // prefs.js (Task 2) precisely so consumers like this test can verify
+      // the renderer-side duplicate stays in sync.
+      // NOTE: arrays returned by the renderer module live in a separate vm
+      // realm (created by loadAwarenessTabModule), so their prototype is a
+      // different Array than this test's Array. assert.deepStrictEqual fails
+      // cross-realm even with identical contents — compare as plain arrays
+      // via Array.from to avoid the prototype check.
+      const expected = Array.from(prefs.WORKSPACE_CATEGORIES).sort();
+      const actual = Array.from(h.WORKSPACE_CATEGORIES).sort();
+      assert.deepStrictEqual(
+        actual,
+        expected,
+        "renderer WORKSPACE_CATEGORIES must mirror prefs.WORKSPACE_CATEGORIES"
+      );
     });
 
     it("LONG_WINDOW_THRESHOLDS includes the prefs.js default sameWindowThresholdMs", () => {
       const h = loadAwarenessTabModule();
-      const prefsSrc = fs.readFileSync(PREFS_FILE, "utf8");
-      const m = prefsSrc.match(/sameWindowThresholdMs:\s*(\d+)/);
-      assert.ok(m, "could not find sameWindowThresholdMs in prefs.js");
-      const defaultMs = Number(m[1]);
+      // Pull the prefs default through the exported getDefaults() helper
+      // so any future restructure of the workspaceAwareness defaultFactory
+      // (e.g. moving the field into a sub-block) still surfaces here.
+      const defaults = prefs.getDefaults();
+      const defaultMs = defaults
+        && defaults.workspaceAwareness
+        && defaults.workspaceAwareness.longWindow
+        && defaults.workspaceAwareness.longWindow.sameWindowThresholdMs;
+      assert.ok(
+        typeof defaultMs === "number" && Number.isFinite(defaultMs) && defaultMs > 0,
+        "prefs.getDefaults().workspaceAwareness.longWindow.sameWindowThresholdMs must be a positive number"
+      );
       assert.ok(
         h.LONG_WINDOW_THRESHOLDS.some((opt) => opt.ms === defaultMs),
         `expected LONG_WINDOW_THRESHOLDS to include the prefs default ${defaultMs}`
