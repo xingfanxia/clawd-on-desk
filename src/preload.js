@@ -38,9 +38,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // PAWPAL-2 — OS-level permission gate (Accessibility / Input Monitoring).
   // Settings UI uses these to check + prompt the user for required macOS
-  // permissions before enabling workspace-awareness detectors.
+  // permissions before enabling workspace-awareness detectors. The
+  // `openSystemSettings` binding lets Task 10's Settings UI offer a
+  // "Re-open System Settings" button after the user closed Settings without
+  // granting (without re-triggering the full prompt + re-probe cycle).
   osPermission: {
     check: (kind) => ipcRenderer.invoke("os-permission:check", kind),
     prompt: (kind) => ipcRenderer.invoke("os-permission:prompt", kind),
+    openSystemSettings: (kind) => ipcRenderer.invoke("os-permission:open-system-settings", kind),
   },
 });

@@ -48,20 +48,20 @@ const SYSTEM_SETTINGS_URLS = {
   inputMonitoring: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
 };
 
-// How long the osascript probe is allowed to block. Same 500ms ceiling that
-// `permission.js#captureFrontApp` already uses — keeps the main process
-// responsive when the user hasn't granted yet (denied probes can hang briefly
-// on first call).
+// How long the osascript probe is allowed to block. 500ms keeps the main
+// process responsive when the user hasn't granted yet (denied probes can
+// hang briefly on first call).
 const OSASCRIPT_TIMEOUT_MS = 500;
 
 // Re-poll cadence inside `subscribe()`. 5s matches the spec.
 const POLL_INTERVAL_MS = 5000;
 
-// Re-check delay after `shell.openExternal` opens System Settings. Gives the
-// user a moment to flip the toggle before we re-probe and resolve the prompt.
+// 30s = spec'd ceiling for the "user finished granting" window after
+// shell.openExternal opens System Settings; foreground signal usually
+// resolves the wait much sooner.
 const PROMPT_REPOLL_DELAY_MS = 30000;
 
-const SAFE_EXEC_FILE = require("child_process").execFile;
+const DEFAULT_EXEC_FILE = require("child_process").execFile;
 
 function isKindAllowed(kind) {
   return typeof kind === "string" && KINDS.indexOf(kind) !== -1;
@@ -69,8 +69,10 @@ function isKindAllowed(kind) {
 
 // Pure detector for the macOS osascript probe. Returns Promise<"granted"|"denied">.
 // `runFn` is injectable so tests can stub it without spawning a real
-// osascript subprocess.
-function probeAccessibilityMac(runFn) {
+// osascript subprocess. `onError` (optional) is called when the failure
+// looks like a real fault (timeout, missing binary, unknown stderr) rather
+// than the user-never-granted case — lets operators distinguish the two.
+function probeAccessibilityMac(runFn, onError) {
   return new Promise((resolve) => {
     runFn(
       "osascript",
@@ -80,17 +82,17 @@ function probeAccessibilityMac(runFn) {
         if (err) {
           // macOS accessibility-denied markers. `not authorized` is the
           // documented string; `(-1719)` and `Application isn't running` show
-          // up on older Sequoia / Sonoma builds. Treat any stderr signal as
-          // denied so we surface the "grant in Settings" affordance.
+          // up on older Sequoia / Sonoma builds.
           const errText = String((stderr || "") + " " + (err.message || ""));
-          if (/not authorized|not allowed assistive access|isn't running|-1719|-1743/i.test(errText)) {
-            resolve("denied");
-          } else {
-            // Other errors (timeout, missing binary) — keep `"denied"` so the
-            // detector treats it as a hard fail rather than silently polling.
-            // Caller can re-probe by re-subscribing.
-            resolve("denied");
+          const isPermissionDenial =
+            /not authorized|not allowed assistive access|isn't running|-1719|-1743/i.test(errText);
+          if (!isPermissionDenial && typeof onError === "function") {
+            // Unknown failure (timeout, missing binary, etc.). Detector still
+            // fails safe to "denied", but surface the underlying cause so
+            // operators can distinguish from "user never granted".
+            try { onError("probeAccessibilityMac:unexpected", err); } catch {}
           }
+          resolve("denied");
           return;
         }
         const text = String(stdout || "").trim();
@@ -104,12 +106,21 @@ function createOsPermission(opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
   const isMac = platform === "darwin";
-  const runFn = o.execFile || SAFE_EXEC_FILE;
+  // DEFAULT_EXEC_FILE is the stdlib child_process.execFile (NOT exec). Safe
+  // here because the only call site uses static "osascript" + a static argv,
+  // never user input — no shell metacharacter risk. `o.execFile` lets tests
+  // inject a stub without spawning a real subprocess.
+  const runFn = o.execFile || DEFAULT_EXEC_FILE;
   // shell.openExternal — required to open System Settings deep-link on macOS.
   // Tests stub this. Non-macOS callers never reach `shell` so it's safe to
   // leave it nullable.
   const shell = o.shell || null;
   const onError = typeof o.onError === "function" ? o.onError : null;
+  // Test hook: override the re-poll delay so tests can exercise the timeout
+  // path without waiting 30s. Production code never sets this.
+  const promptRepollDelayMs = Number.isFinite(o.promptRepollDelayMs)
+    ? Math.max(0, Number(o.promptRepollDelayMs))
+    : PROMPT_REPOLL_DELAY_MS;
   // Foreground tracker — tests can inject; default uses
   // app.on("browser-window-focus"/"browser-window-blur").
   // Defaults to `true` (foreground) when no tracker is supplied so a plain
@@ -131,9 +142,12 @@ function createOsPermission(opts) {
 
   function logError(context, err) {
     if (onError) {
+      // Host's onError must never throw, but defensive catch keeps subscriber
+      // notification (and the surrounding probe lifecycle) from being
+      // derailed by a buggy host handler. Defense in depth, not silent-failure.
       try { onError(context, err); } catch {}
     } else if (err) {
-      // Loud-fail per engineering rules — no silent catch.
+      // No host handler — surface to console so the failure is visible.
       // eslint-disable-next-line no-console
       console.warn(`[os-permission] ${context}:`, (err && err.message) || err);
     }
@@ -152,7 +166,7 @@ function createOsPermission(opts) {
     let next;
     if (kind === "accessibility") {
       try {
-        next = await probeAccessibilityMac(runFn);
+        next = await probeAccessibilityMac(runFn, logError);
       } catch (err) {
         logError("probe accessibility", err);
         next = "denied";
@@ -216,7 +230,7 @@ function createOsPermission(opts) {
     // Wait the documented re-poll window OR the next foreground event,
     // whichever comes first. Foreground = user has finished in Settings and
     // come back to the app.
-    await waitForForegroundOrTimeout(PROMPT_REPOLL_DELAY_MS);
+    await waitForForegroundOrTimeout(promptRepollDelayMs);
     await refresh(kind);
     return cache[kind] === "granted" ? "granted" : "denied";
   }
@@ -224,9 +238,18 @@ function createOsPermission(opts) {
   function waitForForegroundOrTimeout(timeoutMs) {
     return new Promise((resolve) => {
       let done = false;
-      const timer = setTimeout(() => { if (!done) { done = true; resolve(); } }, timeoutMs);
+      // Hoist `off` so the timeout path can release the foreground listener.
+      // Without this, repeated timeout-only promptGrant cycles leak one
+      // listener each into foregroundTracker.
+      let off = null;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        if (typeof off === "function") off();
+        resolve();
+      }, timeoutMs);
       if (foregroundTracker && typeof foregroundTracker.onForeground === "function") {
-        const off = foregroundTracker.onForeground(() => {
+        off = foregroundTracker.onForeground(() => {
           if (done) return;
           done = true;
           clearTimeout(timer);
@@ -353,8 +376,15 @@ function makeElectronForegroundTracker(app) {
     // a focus event for the new window arrive first; only flip to background
     // if the app is still blurred after that.
     setImmediate(() => {
-      const electron = require("electron");
-      const stillFocused = electron.BrowserWindow && electron.BrowserWindow.getFocusedWindow();
+      // Defensive: during app teardown / app.quit(), require("electron") or
+      // BrowserWindow.getFocusedWindow() can throw or return null abruptly.
+      // Treat any failure as "no focused window" so the background path
+      // still runs (which is the safe default during quit).
+      let stillFocused = null;
+      try {
+        const electron = require("electron");
+        stillFocused = electron.BrowserWindow && electron.BrowserWindow.getFocusedWindow();
+      } catch { /* app teardown — treat as background */ }
       if (stillFocused) return;
       cachedForeground = false;
       for (const cb of blurListeners) {

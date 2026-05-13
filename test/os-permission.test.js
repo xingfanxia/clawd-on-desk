@@ -136,10 +136,14 @@ describe("os-permission: macOS Accessibility osascript probe", () => {
     await osPerm.refresh("accessibility");
     assert.strictEqual(osPerm.isGranted("accessibility"), "denied");
 
-    // Subscriber should have observed at least the granted and denied
-    // transitions (plus possibly the initial-refresh granted on subscribe).
-    assert.ok(seen.includes("granted"), `expected 'granted' in transitions, got ${JSON.stringify(seen)}`);
-    assert.ok(seen.includes("denied"), `expected 'denied' in transitions, got ${JSON.stringify(seen)}`);
+    // Subscriber should have observed granted BEFORE denied (order matters
+    // — the spec is unknown→granted→denied, not just "both appear").
+    const grantedIdx = seen.indexOf("granted");
+    const deniedIdx = seen.indexOf("denied");
+    assert.ok(
+      grantedIdx >= 0 && deniedIdx > grantedIdx,
+      `subscriber must see granted before denied (got ${JSON.stringify(seen)})`,
+    );
 
     unsubscribe();
     osPerm.dispose();
@@ -272,6 +276,54 @@ describe("os-permission: promptGrant on macOS — open + re-probe lifecycle", ()
     const result = await osPerm.promptGrant("accessibility");
     assert.strictEqual(result, "denied");
     osPerm.dispose();
+  });
+
+  it("does NOT leak foreground listeners across timeout-only promptGrant cycles", async () => {
+    // Counting tracker: tracks how many active listeners are registered.
+    // Each onForeground() returns an `off` that decrements the counter.
+    // The factory itself registers one structural listener for the
+    // subscribe-poll machinery, so we record that baseline first and verify
+    // that timeout-only prompts don't push the count above it.
+    let activeListeners = 0;
+    const foregroundTracker = {
+      isForeground: () => true,
+      onForeground: () => {
+        activeListeners += 1;
+        return () => { activeListeners -= 1; };
+      },
+      onBackground: () => () => {},
+    };
+
+    const shell = makeShellStub();
+    const run = makeRunStub((cb) => cb(new Error("not authorized"), "", "not authorized"));
+
+    // promptRepollDelayMs=0 so each prompt resolves on the next tick via the
+    // timeout path — exercises exactly the code path that leaked listeners
+    // before fix #1.
+    const osPerm = createOsPermission({
+      platform: "darwin",
+      shell,
+      execFile: run,
+      foregroundTracker,
+      promptRepollDelayMs: 0,
+    });
+
+    const baselineListeners = activeListeners; // factory's structural listener
+
+    for (let i = 0; i < 5; i += 1) {
+      await osPerm.promptGrant("accessibility");
+      // After each completed prompt, no extra listeners should be lingering.
+      assert.strictEqual(
+        activeListeners,
+        baselineListeners,
+        `listener count drifted after prompt #${i + 1} (got ${activeListeners}, baseline ${baselineListeners})`,
+      );
+    }
+    assert.strictEqual(shell.calls.length, 5, "should have opened System Settings once per prompt");
+
+    osPerm.dispose();
+    // dispose() releases the structural listener too — count should hit 0.
+    assert.strictEqual(activeListeners, 0, "dispose() should release the structural foreground listener");
   });
 });
 
