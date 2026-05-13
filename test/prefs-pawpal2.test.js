@@ -306,7 +306,11 @@ describe("PAWPAL-2 prefs.validate: workspaceAwareness normalization", () => {
   });
 
   it("falls back to a full default block when workspaceAwareness is missing or non-object", () => {
-    for (const bad of [undefined, null, "string", 42, []]) {
+    // {} is structurally valid (an object) but missing every sub-field —
+    // the normalizer's correct behavior is to produce a full defaults block,
+    // identical to the non-object-fallback case. Same assertion catches both
+    // paths.
+    for (const bad of [undefined, null, "string", 42, [], {}]) {
       const v = prefs.validate({ workspaceAwareness: bad });
       const d = prefs.getDefaults();
       assert.deepStrictEqual(

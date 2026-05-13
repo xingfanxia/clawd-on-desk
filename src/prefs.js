@@ -30,6 +30,26 @@ const { normalizeSessionAliases } = require("./session-alias");
 
 const CURRENT_VERSION = 4;
 
+// Shared prototype-pollution defense for user-controllable maps. Returns a
+// shallow copy of `raw` with `__proto__` / `constructor` / `prototype` keys
+// removed. Used by every normalizer that reads a wide-open string-keyed map
+// from on-disk JSON (nudges overrides/lastFiredAt, workspaceAwareness root +
+// activeApp.categoryRules + each sub-block). JSON.parse can produce an
+// own-property `__proto__` that survives shallow copy; stripping here keeps
+// any downstream for...in / Object.assign / spread consumer safe.
+//
+// Non-object input (null, primitives, arrays) returns a fresh empty object —
+// callers can rely on the result being a usable plain map.
+function stripPrototypePollutionKeys(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const k of Object.keys(raw)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    out[k] = raw[k];
+  }
+  return out;
+}
+
 // PAWPAL-2: workspaceAwareness category whitelist. Substring-map values
 // outside this set are silently dropped during normalize() so a typo in
 // the user's category-rules editor can't propagate a junk category into
@@ -227,22 +247,10 @@ const SCHEMA = {
         return { preset: "normal", overrides: {}, lastFiredAt: {} };
       }
       const preset = ["quiet", "normal", "coach"].includes(v.preset) ? v.preset : "normal";
-      // Strip prototype-pollution sentinels from any user-controllable map.
-      // JSON.parse('{"__proto__":{...}}') produces an own-property `__proto__`
-      // that survives a shallow copy. Stored prefs are read-back as plain JSON
-      // so this is currently latent, but defending here keeps any future
-      // for...in / Object.assign consumer safe.
-      const _safeMap = (raw) => {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-        const out = {};
-        for (const k of Object.keys(raw)) {
-          if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
-          out[k] = raw[k];
-        }
-        return out;
-      };
-      const overrides = _safeMap(v.overrides);
-      const lastFiredAt = _safeMap(v.lastFiredAt);
+      // overrides + lastFiredAt are user-controllable maps — strip
+      // prototype-pollution sentinels via the shared helper.
+      const overrides = stripPrototypePollutionKeys(v.overrides);
+      const lastFiredAt = stripPrototypePollutionKeys(v.lastFiredAt);
       return { preset, overrides, lastFiredAt };
     },
   },
@@ -636,23 +644,18 @@ function normalizeThemeOverrides(value, defaultsValue) {
 
 // PAWPAL-2: workspaceAwareness normalizer. Validates every level of the
 // block against schema defaults, drops prototype-pollution sentinels at
-// every user-controlled map (root + activeApp.categoryRules), and rejects
-// category-rule values that aren't in WORKSPACE_CATEGORIES so the runtime
-// detectors never see a junk category string.
+// every user-controlled map (root + activeApp.categoryRules + each
+// sub-block) via the shared `stripPrototypePollutionKeys` helper, and
+// rejects category-rule values that aren't in WORKSPACE_CATEGORIES so the
+// runtime detectors never see a junk category string.
 //
-// The defense-in-depth here mirrors `nudges` (root-level prototype strip)
-// plus an extra strip inside categoryRules because that map is the only
-// user-editable substring → string map in the schema — wide-open input.
-function _safeWorkspaceMap(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
-  for (const k of Object.keys(raw)) {
-    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
-    out[k] = raw[k];
-  }
-  return out;
-}
-
+// The prelude coerces `defaults` to a complete block, so every later
+// `defaults.<sub-block>.<field>` lookup is guaranteed to resolve — no
+// downstream fallback chains needed.
+//
+// Numeric thresholds must be > 0; a 0ms / 0% threshold has no meaningful
+// semantics. Users who want a detector disabled flip the corresponding
+// `enabled` boolean, not the threshold.
 function normalizeWorkspaceAwareness(value, defaultsValue) {
   const defaults = defaultsValue && typeof defaultsValue === "object"
     ? defaultsValue
@@ -661,25 +664,22 @@ function normalizeWorkspaceAwareness(value, defaultsValue) {
     return defaultWorkspaceAwareness();
   }
   // Strip prototype-pollution sentinels at the root before reading sub-keys.
-  // JSON.parse('{"__proto__":{...}}') produces an own-property `__proto__`
-  // that survives shallow copy; defending here keeps any downstream
-  // for...in / Object.assign / spread consumer safe.
-  const safeRoot = _safeWorkspaceMap(value);
+  const safeRoot = stripPrototypePollutionKeys(value);
 
   const enabled = typeof safeRoot.enabled === "boolean"
     ? safeRoot.enabled
     : defaults.enabled;
 
   // activeApp sub-block
-  const activeAppDefaults = defaults.activeApp || defaultWorkspaceAwareness().activeApp;
+  const activeAppDefaults = defaults.activeApp;
   const activeAppRaw = (safeRoot.activeApp && typeof safeRoot.activeApp === "object" && !Array.isArray(safeRoot.activeApp))
-    ? _safeWorkspaceMap(safeRoot.activeApp)
+    ? stripPrototypePollutionKeys(safeRoot.activeApp)
     : {};
   const activeAppEnabled = typeof activeAppRaw.enabled === "boolean"
     ? activeAppRaw.enabled
     : activeAppDefaults.enabled;
   const rulesRaw = (activeAppRaw.categoryRules && typeof activeAppRaw.categoryRules === "object" && !Array.isArray(activeAppRaw.categoryRules))
-    ? _safeWorkspaceMap(activeAppRaw.categoryRules)
+    ? stripPrototypePollutionKeys(activeAppRaw.categoryRules)
     : null;
   const categoryRules = {};
   if (rulesRaw) {
@@ -697,9 +697,9 @@ function normalizeWorkspaceAwareness(value, defaultsValue) {
   }
 
   // systemMonitor sub-block
-  const sysDefaults = defaults.systemMonitor || defaultWorkspaceAwareness().systemMonitor;
+  const sysDefaults = defaults.systemMonitor;
   const sysRaw = (safeRoot.systemMonitor && typeof safeRoot.systemMonitor === "object" && !Array.isArray(safeRoot.systemMonitor))
-    ? _safeWorkspaceMap(safeRoot.systemMonitor)
+    ? stripPrototypePollutionKeys(safeRoot.systemMonitor)
     : {};
   const sysEnabled = typeof sysRaw.enabled === "boolean"
     ? sysRaw.enabled
@@ -721,9 +721,9 @@ function normalizeWorkspaceAwareness(value, defaultsValue) {
     : sysDefaults.cpuStressDurationMs;
 
   // longWindow sub-block
-  const lwDefaults = defaults.longWindow || defaultWorkspaceAwareness().longWindow;
+  const lwDefaults = defaults.longWindow;
   const lwRaw = (safeRoot.longWindow && typeof safeRoot.longWindow === "object" && !Array.isArray(safeRoot.longWindow))
-    ? _safeWorkspaceMap(safeRoot.longWindow)
+    ? stripPrototypePollutionKeys(safeRoot.longWindow)
     : {};
   const lwEnabled = typeof lwRaw.enabled === "boolean"
     ? lwRaw.enabled
@@ -843,6 +843,4 @@ module.exports = {
   save,
   normalizeThemeOverrides,
   normalizeShortcuts,
-  normalizeWorkspaceAwareness,
-  defaultWorkspaceAwareness,
 };
