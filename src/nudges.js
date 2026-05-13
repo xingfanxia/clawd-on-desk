@@ -17,6 +17,10 @@
 
 "use strict";
 
+// NOTE: when adding a new preset or nudge here, also update PRESET_ENABLES
+// in src/settings-tab-awareness.js — it mirrors the `enabled` axis of this
+// table so the Awareness tab can surface a "suppressed by preset" hint in
+// the renderer process (which can't require this main-process module).
 const PRESET_CONFIG = {
   quiet: {
     pomodoroBreak: { enabled: true, intervalMin: 50 },
