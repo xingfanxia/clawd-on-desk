@@ -1628,18 +1628,19 @@ const _nudgesCtx = {
     (_longWindowTracker ? _longWindowTracker.getCurrentWindowDurationMs() : null),
   // PAWPAL-2 Task 7: workspace-driven nudge subscription.
   //
-  // Routes a logical channel name to the underlying detector's onAppChange /
-  // onStuckOnProblem / onLongWindow subscription. Returns the unsubscribe fn
-  // from the detector — nudges.js stores these in workspaceUnsubscribes and
-  // calls them from stop().
+  // Maps each abstract channel name to its detector subscribe method. Returns
+  // the unsubscribe fn from the detector — nudges.js stores these in
+  // workspaceUnsubscribes and calls them from stop().
   //
   // Three channels are wired today; unknown channels emit a console warning
   // (visible to engineers running with --inspect / DevTools) and return a
   // no-op unsubscribe so the caller can't crash by invoking an undefined
-  // return. Detectors are forward-declared as `null` at module load — if a
-  // channel is invoked before its detector is instantiated we return a
-  // no-op too (the caller is expected to subscribe AFTER detector instantiation
-  // in practice, but defending against the race keeps the contract safe).
+  // return.
+  //
+  // The detector instances are forward-declared (above this block) and
+  // instantiated later in app.whenReady — but _nudges.start() also runs in
+  // whenReady AFTER those instantiations. The `? : () => {}` fallbacks below
+  // are defense-in-depth against future re-arrangement, not a real race.
   subscribeWorkspace: (channel, callback) => {
     switch (channel) {
       case "workspace.appChange":

@@ -292,19 +292,21 @@ module.exports = function initNudges(ctx) {
 
   // PAWPAL-2: subscribe to detector callbacks for workspace-typed nudges.
   // We subscribe to ALL channels referenced by NUDGE_DEFINITIONS even when
-  // the current preset disables some of them — shouldFire() re-checks at
-  // fire time so DND / preset / override changes apply dynamically without
-  // a re-subscribe cycle. This keeps reload() cheap (no churn through
-  // detector unsubscribe/resubscribe paths) and avoids racing the detector
-  // state machine.
+  // the current preset disables some of them — shouldFire() re-checks DND /
+  // preset / override at fire time, so toggles take effect without a
+  // resubscribe cycle. The detectors themselves are instantiated once at
+  // app boot regardless of prefs (they silent-gate internally on
+  // workspaceAwareness.enabled etc.), so a single subscribe at
+  // _nudges.start() survives all subsequent pref toggles without nudges-side
+  // awareness.
   function startWorkspaceNudges() {
     if (typeof ctx.subscribeWorkspace !== "function") return;
+    // for...of with `const id` creates a fresh per-iteration binding — the
+    // closure below captures `id` correctly for each nudge. No additional
+    // re-aliasing is needed.
     for (const id of Object.keys(NUDGE_DEFINITIONS)) {
       const def = NUDGE_DEFINITIONS[id];
       if (def.type !== "workspace") continue;
-      // Capture nudgeId in the closure — must be a per-iteration `const`,
-      // never a loop-shared `let`, or all callbacks would fire the last id.
-      const nudgeId = id;
       const trigger = def.trigger || null;
       const unsubscribe = ctx.subscribeWorkspace(def.source, (event) => {
         // Trigger gate (currently only socialHeadShake uses this). If a
@@ -318,11 +320,21 @@ module.exports = function initNudges(ctx) {
         // fire time. fireNudge itself short-circuits on shouldFire too, but
         // keeping the early-return here avoids unnecessary call frames for
         // the very-common "preset disables this nudge" case.
-        if (!shouldFire(nudgeId)) return;
-        fireNudge(nudgeId);
+        if (!shouldFire(id)) return;
+        // Detectors wrap their listener callbacks in try/catch, but they
+        // attribute errors at the detector layer — losing nudgeId context.
+        // Wrap fireNudge here so a thrown fireNudge surfaces WHICH nudge
+        // misbehaved, in the nudges module's own log channel.
+        try {
+          fireNudge(id);
+        } catch (err) {
+          if (typeof ctx.log === "function") {
+            ctx.log("error", `nudges: workspace nudge "${id}" fireNudge threw`, err);
+          }
+        }
       });
       if (typeof unsubscribe === "function") {
-        workspaceUnsubscribes.set(nudgeId, unsubscribe);
+        workspaceUnsubscribes.set(id, unsubscribe);
       }
     }
   }

@@ -306,11 +306,10 @@ for (const preset of ["quiet", "normal", "coach"]) {
 //   crashing or polluting workspaceUnsubscribes.
 // -----------------------------------------------------------------------------
 {
-  let unknownWarnings = 0;
   const ctx = makeCtx({ prefs: { version: 4, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } } });
   // Wrap subscribeWorkspace so that for one of the channels we return
-  // `undefined` instead of a function (simulating a buggy bridge), and we
-  // also count "unknown" channel attempts. nudges.js should:
+  // `undefined` instead of a function (simulating a buggy bridge). nudges.js
+  // should:
   //   (a) skip storing the undefined return in workspaceUnsubscribes
   //   (b) NOT crash
   const orig = ctx.subscribeWorkspace;
@@ -344,10 +343,6 @@ for (const preset of ["quiet", "normal", "coach"]) {
   n2._startWorkspaceNudgesForTesting();  // must not throw
   assert.strictEqual(n2._workspaceUnsubscribesForTesting.size, 0,
     "Case K: missing subscribeWorkspace → no-op (no subscriptions stored)");
-
-  // Silence unused-warning bookkeeping (we kept the var to be explicit about
-  // what we counted, but the assertion is the missing-key check above).
-  void unknownWarnings;
 }
 
 console.log("OK — nudges PAWPAL-2 unit tests pass");
