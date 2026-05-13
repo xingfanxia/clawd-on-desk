@@ -1581,11 +1581,12 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
 //    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
 //    cache stale state. `start()` is called from app.whenReady() below.
 //
-// `_workspaceDetector` is forward-declared so `_nudgesCtx` readers can
-// reference it; the actual factory is instantiated alongside the
-// `_osPermission` block further down (factory needs `_osPermission`,
+// `_workspaceDetector` and `_systemMonitor` are forward-declared so `_nudgesCtx`
+// readers can reference them; the actual factories are instantiated alongside
+// the `_osPermission` block further down (factories need `_osPermission`,
 // which itself depends on Electron `app`/`shell`).
 let _workspaceDetector = null;
+let _systemMonitor = null;
 const _nudgesCtx = {
   getPrefs: () => _settingsController.getSnapshot(),
   setPrefs: (patch) => {
@@ -1607,6 +1608,14 @@ const _nudgesCtx = {
     const current = _workspaceDetector && _workspaceDetector.getCurrentApp();
     return current ? current.category : null;
   },
+  // System-monitor signal sources (PAWPAL-2 Task 5). Both return `null` when
+  // the monitor isn't running or the underlying gate is closed (feature
+  // disabled, no Input Monitoring permission, non-macOS for CPU). v1 ships
+  // without a real macOS keystroke source so getTypingRate() is always null
+  // in production — PAWPAL-2.2 will wire a native source. Callers must
+  // tolerate the null case (treat it as "unknown", not "zero").
+  getTypingRate: () => (_systemMonitor ? _systemMonitor.getTypingRate() : null),
+  getCpuPressure: () => (_systemMonitor ? _systemMonitor.getCpuPressure() : null),
   // i18n with optional `{name}` substitution (matches existing i18n.js
   // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
   // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
@@ -3472,8 +3481,44 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
     },
   });
 }
+
+// ── System monitor (PAWPAL-2 Task 5) ──
+// Samples CPU pressure via `top -l 1 -n 0` every 30s and computes typing
+// rate over a rolling 60s window when a keystroke source is wired. Emits
+// onStuckOnProblem when BOTH typing has paused >= 30s AND CPU has been
+// >= 70% for >= 2 min, with a 15-min cooldown between fires. Pure signal
+// source — does NOT trigger any behaviors / nudges / state changes here;
+// Task 7 wires onStuckOnProblem into the nudge biasing layer.
+//
+// v1 keystroke-source caveat: real global keystroke observation on macOS
+// requires CGEventTap behind the Input Monitoring TCC gate, which needs
+// native code we deliberately don't ship in v1. No keystrokeSource is
+// passed below → getTypingRate() returns null in production and the
+// stuck-on-problem evaluator silently no-ops (typing signal is "unknown",
+// can't compare unknown to threshold). PAWPAL-2.2 will inject a native
+// source here; the state machine + CPU probe already work end-to-end.
+//
+// Gates (silent no-op when any fails):
+//   1. `prefs.workspaceAwareness.enabled`
+//   2. `prefs.workspaceAwareness.systemMonitor.enabled`
+//   3. CPU probe requires macOS (no permission needed); typing requires
+//      `_osPermission.isGranted("inputMonitoring") === "granted"`.
+{
+  const _initSystemMonitor = require("./system-monitor");
+  _systemMonitor = _initSystemMonitor({
+    getPrefs: () => _settingsController.getSnapshot(),
+    osPermission: _osPermission,
+    // No keystrokeSource — v1 leaves getTypingRate() as null. PAWPAL-2.2
+    // will inject a native source here.
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[system-monitor] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
 _settingsController.subscribeKey("workspaceAwareness", () => {
   if (_workspaceDetector) _workspaceDetector.reload();
+  if (_systemMonitor) _systemMonitor.reload();
 });
 
 // ── Doctor tab IPC ──
@@ -4800,6 +4845,16 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: workspaceDetector.start() failed:", err && err.message);
     }
+    // PAWPAL-2 Task 5: system monitor (typing rate + CPU pressure). Same
+    // idempotent + internal-gate pattern as workspace-detector — safe to
+    // call unconditionally; no subprocess spawn or keystroke subscription
+    // happens until the user opts in via Settings and (for typing) grants
+    // Input Monitoring.
+    try {
+      if (_systemMonitor) _systemMonitor.start();
+    } catch (err) {
+      console.warn("Clawd: systemMonitor.start() failed:", err && err.message);
+    }
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
@@ -4873,6 +4928,9 @@ if (!gotTheLock) {
     // _state/_nudges doesn't matter — anywhere before the loop tears down
     // is fine.
     if (_workspaceDetector && typeof _workspaceDetector.stop === "function") _workspaceDetector.stop();
+    // PAWPAL-2 Task 5: stop the system-monitor (CPU poll + typing tick).
+    // Same pure-signal-source rationale; teardown ordering is flexible.
+    if (_systemMonitor && typeof _systemMonitor.stop === "function") _systemMonitor.stop();
     if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();

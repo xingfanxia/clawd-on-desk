@@ -19,9 +19,13 @@
 //     name. Denied → stderr contains `not authorized` / `Application isn't
 //     running`. Same probe `permission.js#captureFrontApp` already uses, so
 //     behavior matches everywhere.
-//   - Input Monitoring: stubbed `"unknown"` in v1. Task 5 will replace with a
-//     sentinel-keystroke detector. Detectors must tolerate the `"unknown"`
-//     state (no false positive, no crash).
+//   - Input Monitoring: returns `"unknown"` perpetually in v1 (PAWPAL-2 Task 5
+//     reviewed the options and chose the honest no-op). Real global keystroke
+//     observation on macOS needs CGEventTap, which requires a native module
+//     we deliberately don't ship in v1. PAWPAL-2.2 will swap in a native
+//     keystroke source. system-monitor.js degrades gracefully against
+//     `"unknown"` (typing-rate getter returns null). Consumers must tolerate
+//     the `"unknown"` state (no false positive, no crash).
 //
 // Linux / Windows: hardcoded `"granted"`. No equivalent OS gate. Detectors
 // branch off the higher-level prefs to no-op unsupported features on those
@@ -172,9 +176,14 @@ function createOsPermission(opts) {
         next = "denied";
       }
     } else {
-      // inputMonitoring — Task 5 will replace with a real probe. v1 stays
-      // `"unknown"` so the detector knows the gate hasn't been checked yet
-      // and can prompt the user when it tries to attach a keyboard listener.
+      // inputMonitoring — v1 ships without a real probe. Global keystroke
+      // observation on macOS needs CGEventTap, which requires a native
+      // module we deliberately don't ship in v1 (the Task 5 review picked
+      // the honest no-op over a fake "always granted" stub). Stays
+      // `"unknown"` so consumers know the gate hasn't been checked and can
+      // either prompt the user or degrade gracefully (system-monitor's
+      // typing-rate getter returns null under the unknown state).
+      // PAWPAL-2.2 swaps in a native source.
       next = cache[kind];
     }
     const prev = cache[kind];
