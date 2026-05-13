@@ -1580,6 +1580,12 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
 //    and after _state via _stateCtx.soul wiring above. The scheduler reads
 //    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
 //    cache stale state. `start()` is called from app.whenReady() below.
+//
+// `_workspaceDetector` is forward-declared so `_nudgesCtx` readers can
+// reference it; the actual factory is instantiated alongside the
+// `_osPermission` block further down (factory needs `_osPermission`,
+// which itself depends on Electron `app`/`shell`).
+let _workspaceDetector = null;
 const _nudgesCtx = {
   getPrefs: () => _settingsController.getSnapshot(),
   setPrefs: (patch) => {
@@ -1593,6 +1599,14 @@ const _nudgesCtx = {
   showNativeNotification: ({ title, body }) => showNativeNotification({ title, body }),
   playSound: (name) => playSound(name),
   getMouseStillSinceMs: () => (_tick && typeof _tick._mouseStillSince === "number" ? _tick._mouseStillSince : Date.now()),
+  // Workspace-awareness signal source (PAWPAL-2 Task 4). Returns `null` when
+  // the detector isn't running or hasn't confirmed an app yet — callers
+  // must tolerate the null case.
+  getActiveApp: () => (_workspaceDetector ? _workspaceDetector.getCurrentApp() : null),
+  getAppCategory: () => {
+    const current = _workspaceDetector && _workspaceDetector.getCurrentApp();
+    return current ? current.category : null;
+  },
   // i18n with optional `{name}` substitution (matches existing i18n.js
   // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
   // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
@@ -3425,6 +3439,42 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
   }
 });
 
+// ── Workspace-awareness detector (PAWPAL-2 Task 4) ──
+// Polls the frontmost macOS app every 5s, debounces app changes (Cmd+Tab
+// spam → at most one fire per 5s of stability), and routes app name →
+// workspace category via `prefs.workspaceAwareness.activeApp.categoryRules`.
+// Pure signal source — does NOT trigger any behaviors / nudges / state
+// changes here; later PAWPAL-2 tasks (7, 8) consume `getActiveApp()` /
+// `getAppCategory()` via `_nudgesCtx` and `_stateCtx`.
+//
+// Gates (silent no-op when any fails):
+//   1. `_osPermission.isGranted("accessibility") === "granted"`
+//   2. `prefs.workspaceAwareness.enabled`
+//   3. `prefs.workspaceAwareness.activeApp.enabled`
+// The detector re-checks all three on every tick, so a user grant /
+// pref-toggle resumes detection on the next tick without a restart.
+//
+// `start()` runs from app.whenReady() below (alongside `_nudges.start()`);
+// `stop()` runs from before-quit cleanup. `reload()` fires on
+// workspaceAwareness pref changes to invalidate the rules sort cache and
+// reset any in-flight debounce candidate.
+{
+  const _initWorkspaceDetector = require("./workspace-detector");
+  const { captureFrontApp: _captureFrontApp } = require("./lib/front-app");
+  _workspaceDetector = _initWorkspaceDetector({
+    getPrefs: () => _settingsController.getSnapshot(),
+    osPermission: _osPermission,
+    captureFrontApp: _captureFrontApp,
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[workspace-detector] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
+_settingsController.subscribeKey("workspaceAwareness", () => {
+  if (_workspaceDetector) _workspaceDetector.reload();
+});
+
 // ── Doctor tab IPC ──
 const { registerDoctorIpc } = require("./doctor-ipc");
 registerDoctorIpc({
@@ -4740,6 +4790,15 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: startIdleVariantPoll() failed:", err && err.message);
     }
+    // PAWPAL-2 Task 4: workspace-awareness detector. start() is idempotent
+    // and silent-no-ops internally when prefs/permission gates are off, so
+    // it's safe to always start here — the user never sees CPU cost until
+    // they opt in via Settings + grant Accessibility.
+    try {
+      if (_workspaceDetector) _workspaceDetector.start();
+    } catch (err) {
+      console.warn("Clawd: workspaceDetector.start() failed:", err && err.message);
+    }
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
@@ -4807,6 +4866,11 @@ if (!gotTheLock) {
     // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
     // _state for pushBehavior + DND read-through, so stop them first.
     if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
+    // PAWPAL-2 Task 4: stop the workspace-detector interval before quit so we
+    // don't leak a 5s pending tick into shutdown. Detector is a pure signal
+    // source, so stop ordering vs _state/_nudges doesn't matter — anywhere
+    // before the loop tears down is fine.
+    if (_workspaceDetector && typeof _workspaceDetector.stop === "function") _workspaceDetector.stop();
     if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();

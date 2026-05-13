@@ -15,15 +15,7 @@ const isMac = process.platform === "darwin";
 const isLinux = process.platform === "linux";
 const isWin = process.platform === "win32";
 const { execFile } = require("child_process");
-
-function captureFrontApp(cb) {
-  if (!isMac) { cb(null); return; }
-  execFile("osascript", ["-e",
-    'tell application "System Events" to get name of first application process whose frontmost is true'
-  ], { timeout: 500 }, (err, stdout) => {
-    cb(err ? null : stdout.trim());
-  });
-}
+const { captureFrontApp } = require("./lib/front-app");
 
 function restoreFrontApp(appName) {
   if (!isMac || !appName) return;
