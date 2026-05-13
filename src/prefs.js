@@ -28,7 +28,59 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
+
+// PAWPAL-2: workspaceAwareness category whitelist. Substring-map values
+// outside this set are silently dropped during normalize() so a typo in
+// the user's category-rules editor can't propagate a junk category into
+// the runtime detectors. social is detected via browser tab title patterns
+// in a later sub-task (PAWPAL-2.1) — the category is reserved here so prefs
+// written by future versions don't get stripped on a downgrade.
+const WORKSPACE_CATEGORIES = ["code", "docs", "social", "chat", "video", "creative"];
+
+// Default substring → category map for the active-app detector. Keys are
+// case-sensitive substrings to match against frontmost-app name / browser
+// tab title; values are categories from WORKSPACE_CATEGORIES. Users can
+// extend / override this map via the Settings UI.
+function defaultActiveAppCategoryRules() {
+  return {
+    "Code": "code",
+    "Visual Studio Code": "code",
+    "Cursor": "code",
+    "Terminal": "code",
+    "Notion": "docs",
+    "Obsidian": "docs",
+    "Slack": "chat",
+    "Discord": "chat",
+    "Messages": "chat",
+    "YouTube": "video",
+    "Netflix": "video",
+    "Figma": "creative",
+  };
+}
+
+// Fresh defaults for the workspaceAwareness block. Every nested toggle
+// defaults to `false` — opt-in is non-negotiable per spec because the
+// detectors require OS-level Accessibility / Input Monitoring grants.
+function defaultWorkspaceAwareness() {
+  return {
+    enabled: false,
+    activeApp: {
+      enabled: false,
+      categoryRules: defaultActiveAppCategoryRules(),
+    },
+    systemMonitor: {
+      enabled: false,
+      typingPauseThresholdMs: 30000,
+      cpuStressThresholdPct: 70,
+      cpuStressDurationMs: 120000,
+    },
+    longWindow: {
+      enabled: false,
+      sameWindowThresholdMs: 5400000,
+    },
+  };
+}
 
 // ── Schema ──
 // Each field has: type, default OR defaultFactory, optional enum/normalize/validate.
@@ -194,6 +246,17 @@ const SCHEMA = {
       return { preset, overrides, lastFiredAt };
     },
   },
+  // PAWPAL-2: workspace-awareness configuration. The master `enabled` flag
+  // is the kill switch; each detector sub-block has its own `enabled` flag
+  // that also requires the matching OS permission (Accessibility for the
+  // activeApp detector, Input Monitoring for systemMonitor). All defaults
+  // are `false` so a fresh install never wakes up a detector without
+  // explicit opt-in from the Settings UI.
+  workspaceAwareness: {
+    type: "object",
+    defaultFactory: defaultWorkspaceAwareness,
+    normalize: normalizeWorkspaceAwareness,
+  },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));
@@ -320,6 +383,17 @@ function migrate(raw) {
       out.nudges = { preset: "normal", overrides: {}, lastFiredAt: {} };
     }
     out.version = 3;
+  }
+  // v3 → v4: backfill `workspaceAwareness` (PAWPAL-2). Defaults are all-off
+  // (master switch + each detector sub-block) because the detectors require
+  // explicit OS permission grants — Accessibility for activeApp, Input
+  // Monitoring for systemMonitor. Silent opt-out preserves the upgrade
+  // promise that nothing wakes up without the user's say-so in Settings.
+  if ((typeof out.version !== "number" ? 0 : out.version) < 4) {
+    if (out.workspaceAwareness === undefined) {
+      out.workspaceAwareness = defaultWorkspaceAwareness();
+    }
+    out.version = 4;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
@@ -560,6 +634,125 @@ function normalizeThemeOverrides(value, defaultsValue) {
   return out;
 }
 
+// PAWPAL-2: workspaceAwareness normalizer. Validates every level of the
+// block against schema defaults, drops prototype-pollution sentinels at
+// every user-controlled map (root + activeApp.categoryRules), and rejects
+// category-rule values that aren't in WORKSPACE_CATEGORIES so the runtime
+// detectors never see a junk category string.
+//
+// The defense-in-depth here mirrors `nudges` (root-level prototype strip)
+// plus an extra strip inside categoryRules because that map is the only
+// user-editable substring → string map in the schema — wide-open input.
+function _safeWorkspaceMap(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const k of Object.keys(raw)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    out[k] = raw[k];
+  }
+  return out;
+}
+
+function normalizeWorkspaceAwareness(value, defaultsValue) {
+  const defaults = defaultsValue && typeof defaultsValue === "object"
+    ? defaultsValue
+    : defaultWorkspaceAwareness();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultWorkspaceAwareness();
+  }
+  // Strip prototype-pollution sentinels at the root before reading sub-keys.
+  // JSON.parse('{"__proto__":{...}}') produces an own-property `__proto__`
+  // that survives shallow copy; defending here keeps any downstream
+  // for...in / Object.assign / spread consumer safe.
+  const safeRoot = _safeWorkspaceMap(value);
+
+  const enabled = typeof safeRoot.enabled === "boolean"
+    ? safeRoot.enabled
+    : defaults.enabled;
+
+  // activeApp sub-block
+  const activeAppDefaults = defaults.activeApp || defaultWorkspaceAwareness().activeApp;
+  const activeAppRaw = (safeRoot.activeApp && typeof safeRoot.activeApp === "object" && !Array.isArray(safeRoot.activeApp))
+    ? _safeWorkspaceMap(safeRoot.activeApp)
+    : {};
+  const activeAppEnabled = typeof activeAppRaw.enabled === "boolean"
+    ? activeAppRaw.enabled
+    : activeAppDefaults.enabled;
+  const rulesRaw = (activeAppRaw.categoryRules && typeof activeAppRaw.categoryRules === "object" && !Array.isArray(activeAppRaw.categoryRules))
+    ? _safeWorkspaceMap(activeAppRaw.categoryRules)
+    : null;
+  const categoryRules = {};
+  if (rulesRaw) {
+    for (const substring of Object.keys(rulesRaw)) {
+      if (typeof substring !== "string" || !substring) continue;
+      const category = rulesRaw[substring];
+      if (typeof category !== "string") continue;
+      if (!WORKSPACE_CATEGORIES.includes(category)) continue;
+      categoryRules[substring] = category;
+    }
+  } else {
+    // Missing or malformed categoryRules → seed defaults so the detector
+    // always has something to match against once the user opts in.
+    Object.assign(categoryRules, defaultActiveAppCategoryRules());
+  }
+
+  // systemMonitor sub-block
+  const sysDefaults = defaults.systemMonitor || defaultWorkspaceAwareness().systemMonitor;
+  const sysRaw = (safeRoot.systemMonitor && typeof safeRoot.systemMonitor === "object" && !Array.isArray(safeRoot.systemMonitor))
+    ? _safeWorkspaceMap(safeRoot.systemMonitor)
+    : {};
+  const sysEnabled = typeof sysRaw.enabled === "boolean"
+    ? sysRaw.enabled
+    : sysDefaults.enabled;
+  const typingPauseThresholdMs = (typeof sysRaw.typingPauseThresholdMs === "number"
+    && Number.isFinite(sysRaw.typingPauseThresholdMs)
+    && sysRaw.typingPauseThresholdMs > 0)
+    ? sysRaw.typingPauseThresholdMs
+    : sysDefaults.typingPauseThresholdMs;
+  const cpuStressThresholdPct = (typeof sysRaw.cpuStressThresholdPct === "number"
+    && Number.isFinite(sysRaw.cpuStressThresholdPct)
+    && sysRaw.cpuStressThresholdPct > 0)
+    ? sysRaw.cpuStressThresholdPct
+    : sysDefaults.cpuStressThresholdPct;
+  const cpuStressDurationMs = (typeof sysRaw.cpuStressDurationMs === "number"
+    && Number.isFinite(sysRaw.cpuStressDurationMs)
+    && sysRaw.cpuStressDurationMs > 0)
+    ? sysRaw.cpuStressDurationMs
+    : sysDefaults.cpuStressDurationMs;
+
+  // longWindow sub-block
+  const lwDefaults = defaults.longWindow || defaultWorkspaceAwareness().longWindow;
+  const lwRaw = (safeRoot.longWindow && typeof safeRoot.longWindow === "object" && !Array.isArray(safeRoot.longWindow))
+    ? _safeWorkspaceMap(safeRoot.longWindow)
+    : {};
+  const lwEnabled = typeof lwRaw.enabled === "boolean"
+    ? lwRaw.enabled
+    : lwDefaults.enabled;
+  const sameWindowThresholdMs = (typeof lwRaw.sameWindowThresholdMs === "number"
+    && Number.isFinite(lwRaw.sameWindowThresholdMs)
+    && lwRaw.sameWindowThresholdMs > 0)
+    ? lwRaw.sameWindowThresholdMs
+    : lwDefaults.sameWindowThresholdMs;
+
+  return {
+    enabled,
+    activeApp: {
+      enabled: activeAppEnabled,
+      categoryRules,
+    },
+    systemMonitor: {
+      enabled: sysEnabled,
+      typingPauseThresholdMs,
+      cpuStressThresholdPct,
+      cpuStressDurationMs,
+    },
+    longWindow: {
+      enabled: lwEnabled,
+      sameWindowThresholdMs,
+    },
+  };
+}
+
 function normalizeThemeVariant(value, defaultsValue) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return defaultsValue;
   const out = {};
@@ -642,6 +835,7 @@ module.exports = {
   SCHEMA_KEYS,
   AGENT_FLAGS,
   CODEX_PERMISSION_MODES,
+  WORKSPACE_CATEGORIES,
   getDefaults,
   validate,
   migrate,
@@ -649,4 +843,6 @@ module.exports = {
   save,
   normalizeThemeOverrides,
   normalizeShortcuts,
+  normalizeWorkspaceAwareness,
+  defaultWorkspaceAwareness,
 };
