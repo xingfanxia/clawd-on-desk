@@ -3528,36 +3528,15 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
 }
 
 // ── Long-window tracker (PAWPAL-2 Task 6) ──
-// Subscribes to the workspace-detector's onAppChange events and tracks how
-// long the user has stayed on the same app. Fires `onLongWindow({app,
-// durationMs})` once duration crosses
-// `prefs.workspaceAwareness.longWindow.sameWindowThresholdMs` (default 90
-// min), with a 30-min cooldown between fires to avoid spam. Pure signal
-// source — does NOT trigger behaviors / nudges / state changes here; Task
-// 7 wires onLongWindow into the nudge biasing layer ("you've been on
-// Slack for 2 hours, want a break?").
+// See src/long-window-tracker.js header for design rationale (Date.now-
+// based comparison vs setTimeout, gate stack, fatigue-history-survives-
+// stop, why this is separated from workspace-detector).
 //
-// Why this is a separate detector instead of being inlined into
-// workspace-detector: the workspace-detector is a synchronous, pure
-// debounced poller — it owns "what app are we on RIGHT NOW?" The long-
-// window tracker is the temporal accumulator on top of that, which is a
-// genuinely different concern (different cadence, different state, fires
-// at different rates). Separating them keeps each one ~150 LOC and lets
-// Task 7's nudge biasing subscribe to either independently.
-//
-// Why timestamp comparison instead of setTimeout: the 90-min horizon
-// crosses macOS sleep/wake. setTimeout drifts (pauses during sleep, fires
-// late on resume); a tick-and-compare approach observes the full elapsed
-// delta on the first post-wake tick. Tick cadence is 60s, which is the
-// max firing lag against the 90-min threshold.
-//
-// Gates (silent no-op when any fails):
-//   1. `prefs.workspaceAwareness.enabled`
-//   2. `prefs.workspaceAwareness.longWindow.enabled`
-// Tracker depends on workspace-detector's event stream — without an
-// onAppChange there's no app to attribute time to. start() handles a
-// throwing onAppChange by logging and skipping the tick interval (Task 5
-// review lesson).
+// Wiring-specific note: the tracker subscribes to `_workspaceDetector`'s
+// onAppChange, so this instantiation must come AFTER _workspaceDetector
+// above. `start()` in whenReady() below similarly chains after the
+// detector's start() so the first onAppChange confirmation can flow
+// through.
 {
   const _initLongWindowTracker = require("./long-window-tracker");
   _longWindowTracker = _initLongWindowTracker({

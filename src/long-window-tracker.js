@@ -273,10 +273,11 @@ function initLongWindowTracker(ctx) {
     reload,
     // Test-only — direct access to internals without needing real timers /
     // mocked workspaceDetector ticks beyond what the tests already inject.
+    // Kept minimal: only the introspection getter is consumed today; other
+    // internals (tick, isGated, handleAppChange) are exercised via public
+    // API + listener-fired events. Add entries here only when a future test
+    // genuinely needs them.
     __test: {
-      tick,
-      isGated,
-      handleAppChange,
       getInternalState: () => ({
         currentApp,
         sameAppSince,

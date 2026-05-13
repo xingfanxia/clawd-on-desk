@@ -104,7 +104,11 @@ function buildPrefs(overrides) {
       },
     },
   };
-  if (!overrides) return base;
+  // Defensive: always return a fresh clone even on the no-overrides path so
+  // a future test that mutates the returned prefs (e.g., `prefsBox.current
+  // = ...; current.workspaceAwareness.enabled = false`) can't pollute the
+  // base object and bleed into subsequent buildPrefs() calls.
+  if (!overrides) return JSON.parse(JSON.stringify(base));
   const out = JSON.parse(JSON.stringify(base));
   if (overrides.workspaceAwareness) {
     Object.assign(out.workspaceAwareness, overrides.workspaceAwareness);
