@@ -1626,6 +1626,34 @@ const _nudgesCtx = {
   // "zero"). Task 7 will surface this reader to nudge biasing.
   getCurrentWindowDurationMs: () =>
     (_longWindowTracker ? _longWindowTracker.getCurrentWindowDurationMs() : null),
+  // PAWPAL-2 Task 7: workspace-driven nudge subscription.
+  //
+  // Routes a logical channel name to the underlying detector's onAppChange /
+  // onStuckOnProblem / onLongWindow subscription. Returns the unsubscribe fn
+  // from the detector — nudges.js stores these in workspaceUnsubscribes and
+  // calls them from stop().
+  //
+  // Three channels are wired today; unknown channels emit a console warning
+  // (visible to engineers running with --inspect / DevTools) and return a
+  // no-op unsubscribe so the caller can't crash by invoking an undefined
+  // return. Detectors are forward-declared as `null` at module load — if a
+  // channel is invoked before its detector is instantiated we return a
+  // no-op too (the caller is expected to subscribe AFTER detector instantiation
+  // in practice, but defending against the race keeps the contract safe).
+  subscribeWorkspace: (channel, callback) => {
+    switch (channel) {
+      case "workspace.appChange":
+        return _workspaceDetector ? _workspaceDetector.onAppChange(callback) : () => {};
+      case "system.stuckOnProblem":
+        return _systemMonitor ? _systemMonitor.onStuckOnProblem(callback) : () => {};
+      case "longWindow.fire":
+        return _longWindowTracker ? _longWindowTracker.onLongWindow(callback) : () => {};
+      default:
+        // eslint-disable-next-line no-console
+        console.warn(`Clawd: nudges.subscribeWorkspace unknown channel: ${channel}`);
+        return () => {};
+    }
+  },
   // i18n with optional `{name}` substitution (matches existing i18n.js
   // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
   // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js

@@ -105,6 +105,10 @@
       rowHydrateEnabled: "Hydration reminders",
       rowLongSitEnabled: "Long-sit detection",
       rowLateNightYawnEnabled: "Late-night yawn",
+      // PAWPAL-2 workspace-driven nudges
+      rowSocialHeadShakeEnabled: "Social app head-shake",
+      rowStuckOnProblemEnabled: "Stuck-on-problem cue",
+      rowLongWindowBreakEnabled: "Long-window break",
       nudgeSuppressedByPreset: "Suppressed by current preset — won't fire",
       sectionSoulIdle: "Soul-Driven Idle",
       descSoulIdle: "Cat's idle expression reflects Soul's reading of you. Energetic when Soul is up, drowsy when down. Active only when AI features are on.",
@@ -425,6 +429,10 @@
       rowHydrateEnabled: "喝水提醒",
       rowLongSitEnabled: "久坐检测",
       rowLateNightYawnEnabled: "深夜哈欠",
+      // PAWPAL-2 workspace-driven nudges
+      rowSocialHeadShakeEnabled: "切到社交软件时摇头",
+      rowStuckOnProblemEnabled: "卡壳提示",
+      rowLongWindowBreakEnabled: "长时间同一窗口提醒",
       nudgeSuppressedByPreset: "当前级别已抑制此提醒 — 不会触发",
       sectionSoulIdle: "Soul 情绪空闲",
       descSoulIdle: "猫的空闲表情会反映 Soul 对你的观察 — Soul 高兴时活力，疲倦时打盹。仅在开启 AI 功能时生效。",
@@ -744,6 +752,10 @@
       rowHydrateEnabled: "Hydration reminders",
       rowLongSitEnabled: "Long-sit detection",
       rowLateNightYawnEnabled: "Late-night yawn",
+      // PAWPAL-2 workspace-driven nudges — Korean stub falls back to English.
+      rowSocialHeadShakeEnabled: "Social app head-shake",
+      rowStuckOnProblemEnabled: "Stuck-on-problem cue",
+      rowLongWindowBreakEnabled: "Long-window break",
       nudgeSuppressedByPreset: "Suppressed by current preset — won't fire",
       sectionSoulIdle: "Soul-Driven Idle",
       descSoulIdle: "Cat's idle expression reflects Soul's reading of you. Energetic when Soul is up, drowsy when down. Active only when AI features are on.",
@@ -1063,6 +1075,10 @@
       rowHydrateEnabled: "Hydration reminders",
       rowLongSitEnabled: "Long-sit detection",
       rowLateNightYawnEnabled: "Late-night yawn",
+      // PAWPAL-2 workspace-driven nudges — Japanese stub falls back to English.
+      rowSocialHeadShakeEnabled: "Social app head-shake",
+      rowStuckOnProblemEnabled: "Stuck-on-problem cue",
+      rowLongWindowBreakEnabled: "Long-window break",
       nudgeSuppressedByPreset: "Suppressed by current preset — won't fire",
       sectionSoulIdle: "Soul-Driven Idle",
       descSoulIdle: "Cat's idle expression reflects Soul's reading of you. Energetic when Soul is up, drowsy when down. Active only when AI features are on.",

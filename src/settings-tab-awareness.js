@@ -10,10 +10,14 @@
 
 (function initSettingsTabAwareness(root) {
   const NUDGE_TOGGLES = [
-    { id: "pomodoroBreak",  labelKey: "rowPomodoroEnabled" },
-    { id: "hydrate",        labelKey: "rowHydrateEnabled" },
-    { id: "longSit",        labelKey: "rowLongSitEnabled" },
-    { id: "lateNightYawn",  labelKey: "rowLateNightYawnEnabled" },
+    { id: "pomodoroBreak",   labelKey: "rowPomodoroEnabled" },
+    { id: "hydrate",         labelKey: "rowHydrateEnabled" },
+    { id: "longSit",         labelKey: "rowLongSitEnabled" },
+    { id: "lateNightYawn",   labelKey: "rowLateNightYawnEnabled" },
+    // PAWPAL-2 workspace-driven nudges.
+    { id: "socialHeadShake", labelKey: "rowSocialHeadShakeEnabled" },
+    { id: "stuckOnProblem",  labelKey: "rowStuckOnProblemEnabled" },
+    { id: "longWindowBreak", labelKey: "rowLongWindowBreakEnabled" },
   ];
 
   const PRESETS = ["quiet", "normal", "coach"];
@@ -24,9 +28,18 @@
   // to surface the "won't fire under current preset" hint below disabled
   // toggles (the actual gating happens in nudges.js#shouldFire).
   const PRESET_ENABLES = {
-    quiet:  { pomodoroBreak: true, hydrate: false, longSit: false, lateNightYawn: false },
-    normal: { pomodoroBreak: true, hydrate: true,  longSit: true,  lateNightYawn: true  },
-    coach:  { pomodoroBreak: true, hydrate: true,  longSit: true,  lateNightYawn: true  },
+    quiet: {
+      pomodoroBreak: true, hydrate: false, longSit: false, lateNightYawn: false,
+      socialHeadShake: false, stuckOnProblem: false, longWindowBreak: true,
+    },
+    normal: {
+      pomodoroBreak: true, hydrate: true, longSit: true, lateNightYawn: true,
+      socialHeadShake: true, stuckOnProblem: true, longWindowBreak: true,
+    },
+    coach: {
+      pomodoroBreak: true, hydrate: true, longSit: true, lateNightYawn: true,
+      socialHeadShake: true, stuckOnProblem: true, longWindowBreak: true,
+    },
   };
 
   let state = null;
