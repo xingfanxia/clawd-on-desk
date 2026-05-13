@@ -108,6 +108,26 @@ describe("os-permission: macOS Accessibility osascript probe", () => {
     assert.strictEqual(result, "denied");
   });
 
+  it("surfaces unexpected probe failures through onError (observable, not silently bucketed as denied)", async () => {
+    // Non-permission-denial error: stderr is empty, message doesn't match the
+    // accessibility-denied regex. Must flow through onError so operators can
+    // distinguish "timed out / missing binary" from "user never granted".
+    const err = Object.assign(new Error("Command timed out"), { killed: true, signal: "SIGTERM" });
+    const run = makeRunStub((cb) => cb(err, "", ""));
+    const captured = [];
+    const osPerm = createOsPermission({
+      platform: "darwin",
+      execFile: run,
+      onError: (context, e) => captured.push({ context, err: e }),
+    });
+    const result = await osPerm.refresh("accessibility");
+    assert.strictEqual(result, "denied", "unknown failure must still fail safe to denied");
+    assert.strictEqual(osPerm.isGranted("accessibility"), "denied");
+    assert.strictEqual(captured.length, 1, `expected 1 onError call, got ${captured.length}`);
+    assert.strictEqual(captured[0].context, "probeAccessibilityMac:unexpected");
+    assert.match(captured[0].err && captured[0].err.message, /Command timed out/);
+  });
+
   it("inputMonitoring stays 'unknown' on macOS in v1 (Task 5 will fill in)", async () => {
     const run = makeRunStub((cb) => cb(null, "", ""));
     const osPerm = createOsPermission({ platform: "darwin", execFile: run });
