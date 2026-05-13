@@ -35,4 +35,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Render window → main (cursor polling control during reactions)
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),
+
+  // PAWPAL-2 — OS-level permission gate (Accessibility / Input Monitoring).
+  // Settings UI uses these to check + prompt the user for required macOS
+  // permissions before enabling workspace-awareness detectors.
+  osPermission: {
+    check: (kind) => ipcRenderer.invoke("os-permission:check", kind),
+    prompt: (kind) => ipcRenderer.invoke("os-permission:prompt", kind),
+  },
 });

@@ -3361,6 +3361,70 @@ ipcMain.handle("settings:open-external", async (_event, url) => {
   }
 });
 
+// ── OS-level permission gate (Accessibility / Input Monitoring) ──
+// Workspace-awareness detectors share this single source of truth so they
+// can check permission state synchronously, prompt the user via a
+// deep-link into System Settings, and re-poll on app foreground.
+//
+// IMPORTANT: `os-permission:open-system-settings` deliberately keeps a
+// separate URL whitelist from `settings:open-external` (which is http(s)
+// only). We don't broaden the http(s) handler with `x-apple.systempreferences:`
+// — keep both boundaries tight.
+const {
+  createOsPermission: _createOsPermission,
+  makeElectronForegroundTracker: _makeOsPermissionForegroundTracker,
+  SYSTEM_SETTINGS_URLS: _OS_PERMISSION_URLS,
+} = require("./os-permission");
+const _osPermission = _createOsPermission({
+  shell,
+  foregroundTracker: _makeOsPermissionForegroundTracker(app),
+  onError: (context, err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`[os-permission] ${context}:`, (err && err.message) || err);
+  },
+});
+ipcMain.handle("os-permission:check", async (_event, kind) => {
+  if (typeof kind !== "string") {
+    return { status: "error", message: "Invalid kind" };
+  }
+  try {
+    const state = await _osPermission.refresh(kind);
+    return { status: "ok", state };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+ipcMain.handle("os-permission:prompt", async (_event, kind) => {
+  if (typeof kind !== "string") {
+    return { status: "error", message: "Invalid kind" };
+  }
+  try {
+    const state = await _osPermission.promptGrant(kind);
+    return { status: "ok", state };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
+  // Whitelist validation — only the two known kinds, mapped to known URLs.
+  if (typeof kind !== "string" || !Object.prototype.hasOwnProperty.call(_OS_PERMISSION_URLS, kind)) {
+    return { status: "error", message: "Invalid kind" };
+  }
+  const url = _OS_PERMISSION_URLS[kind];
+  // Belt-and-braces URL prefix check — the whitelist already enforces this,
+  // but if a future maintainer broadens the map we still won't leak through
+  // a non-System-Settings URL to shell.openExternal.
+  if (!/^x-apple\.systempreferences:com\.apple\.preference\.security/.test(url)) {
+    return { status: "error", message: "Invalid URL" };
+  }
+  try {
+    await shell.openExternal(url);
+    return { status: "ok" };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+
 // ── Doctor tab IPC ──
 const { registerDoctorIpc } = require("./doctor-ipc");
 registerDoctorIpc({
