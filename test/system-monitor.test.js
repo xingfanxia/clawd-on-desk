@@ -690,6 +690,167 @@ describe("system-monitor: start/stop lifecycle", () => {
   });
 });
 
+// ── Review fix #1: stop() resets cycle-local state ──────────────────────
+describe("system-monitor: stop() resets cycle-local state for clean restart", () => {
+  it("getTypingRate returns null after stop()→start() cycle inside the 60s window", () => {
+    const { monitor, timers, source } = buildMonitor();
+    monitor.start();
+    // Inject 5 keystrokes — well inside the 60s window.
+    for (let i = 0; i < 5; i += 1) source.tap();
+    assert.strictEqual(monitor.getTypingRate(), 5);
+    monitor.stop();
+    // Restart immediately (no clock advance). Without the stop()-reset fix,
+    // the 5 pre-stop keystrokes would still be in the rolling window and
+    // getTypingRate() would return 5. With the fix, the keystroke buffer is
+    // cleared on stop(), so post-restart getTypingRate() === null (no samples).
+    monitor.start();
+    assert.strictEqual(monitor.getTypingRate(), null, "pre-stop keystrokes must NOT survive the restart");
+    monitor.stop();
+  });
+
+  it("getCpuPressure returns null after stop()→start() cycle (pre-stop sample doesn't leak)", () => {
+    const exec = makeExecFileStub([
+      { err: null, stdout: "CPU usage: 80% user, 0% sys, 20% idle\n" }, // pre-stop
+      { err: null, stdout: "garbage" },                                  // post-restart parse fails
+    ]);
+    const { monitor, timers } = buildMonitor({ exec });
+    monitor.start();
+    timers.tickCpu();
+    assert.strictEqual(monitor.getCpuPressure(), 80);
+    monitor.stop();
+    monitor.start();
+    // Before the second poll has a chance to fire, the pre-stop sample
+    // should already be cleared. Without the fix, getCpuPressure() would
+    // still return 80.
+    assert.strictEqual(monitor.getCpuPressure(), null, "pre-stop cpuPressurePct must NOT survive the restart");
+    monitor.stop();
+  });
+
+  it("preserves lastStuckFireAt across stop()→start() (fatigue history, NOT cycle-local)", () => {
+    const exec = makeExecFileStub([{ err: null, stdout: "CPU usage: 80% user, 0% sys, 20% idle\n" }]);
+    const { monitor, timers, source } = buildMonitor({ exec });
+    monitor.start();
+    source.tap();
+    monitor.onStuckOnProblem(() => {});
+    timers.advance(30000); timers.tickCpu();
+    timers.advance(120000); timers.tickCpu();
+    timers.tickTyping();
+    const stateBefore = monitor.__test.getInternalState();
+    assert.ok(stateBefore.lastStuckFireAt !== null, "first fire should have set lastStuckFireAt");
+    monitor.stop();
+    monitor.start();
+    const stateAfter = monitor.__test.getInternalState();
+    assert.strictEqual(
+      stateAfter.lastStuckFireAt,
+      stateBefore.lastStuckFireAt,
+      "stop()→start() must preserve lastStuckFireAt (session-wide fatigue history)",
+    );
+    monitor.stop();
+  });
+});
+
+// ── Review fix #2: subscribe() failure doesn't leak typing-poll timer ────
+describe("system-monitor: subscribe-failure cleanup", () => {
+  it("does NOT register the typing-poll interval when keystrokeSource.subscribe throws", () => {
+    const throwingSource = {
+      subscribe() { throw new Error("permission denied at OS layer"); },
+    };
+    const timers = makeFakeTimers();
+    const logs = [];
+    const monitor = initSystemMonitor({
+      getPrefs: () => buildPrefs(),
+      osPermission: makeOsPermissionStub().osPermission,
+      log: (level, msg, err) => { logs.push({ level, msg, err: err && err.message }); },
+      now: timers.now,
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
+      execFile: makeExecFileStub().execFile,
+      platform: "darwin",
+      keystrokeSource: throwingSource,
+    });
+    monitor.start();
+    // CPU poll (30s) still armed; typing poll (1s) must NOT be armed.
+    assert.strictEqual(timers.isArmed(30000), true, "CPU poll should still be armed");
+    assert.strictEqual(timers.isArmed(1000), false, "typing poll must NOT be armed when subscribe throws");
+    // The throw was logged once.
+    const subscribeErr = logs.filter((l) => /subscribe threw/i.test(l.msg));
+    assert.strictEqual(subscribeErr.length, 1);
+    // getTypingRate stays null (no source effectively wired).
+    assert.strictEqual(monitor.getTypingRate(), null);
+    monitor.stop();
+    // stop() must not throw and CPU interval should be cleared cleanly.
+    assert.strictEqual(timers.countIntervals(), 0);
+  });
+
+  it("does NOT register the typing-poll interval when subscribe returns non-function", () => {
+    // Edge case: subscribe runs but returns garbage (e.g., undefined). The
+    // monitor has no way to clean up, so it should refuse to arm the typing
+    // interval — otherwise stop() can't unsubscribe and the interval keeps
+    // firing with a half-attached source.
+    const badSource = {
+      subscribe() { return undefined; },
+    };
+    const timers = makeFakeTimers();
+    const monitor = initSystemMonitor({
+      getPrefs: () => buildPrefs(),
+      osPermission: makeOsPermissionStub().osPermission,
+      log: () => {},
+      now: timers.now,
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
+      execFile: makeExecFileStub().execFile,
+      platform: "darwin",
+      keystrokeSource: badSource,
+    });
+    monitor.start();
+    assert.strictEqual(timers.isArmed(1000), false, "typing poll must NOT arm without a valid unsubscribe fn");
+    monitor.stop();
+  });
+});
+
+// ── Review fix #5: cpuStressThresholdPct upper bound (cap at 100) ────────
+describe("system-monitor: cpuStressThresholdPct upper-bound validation", () => {
+  it("falls back to default (70) when prefs set threshold above 100", () => {
+    // Threshold > 100 is impossible to ever exceed since pressure samples
+    // clamp to [0,100]. Without the cap, the stuck signal would silently
+    // disable forever.
+    const prefs = buildPrefs({
+      workspaceAwareness: { systemMonitor: { cpuStressThresholdPct: 150 } },
+    });
+    const exec = makeExecFileStub([{ err: null, stdout: "CPU usage: 80% user, 0% sys, 20% idle\n" }]);
+    const { monitor, timers, source } = buildMonitor({ prefs, exec });
+    monitor.start();
+    source.tap();
+    let stuckEvents = [];
+    monitor.onStuckOnProblem((evt) => stuckEvents.push(evt));
+    // 80% > default 70% — stuck should fire normally. If the validator
+    // accepted 150, cpuStressSince would stay null and no fire would happen.
+    timers.advance(30000); timers.tickCpu();
+    timers.advance(120000); timers.tickCpu();
+    timers.tickTyping();
+    assert.strictEqual(stuckEvents.length, 1, "150 must fall back to default 70 → fire as normal");
+    monitor.stop();
+  });
+
+  it("accepts threshold === 100 (boundary value)", () => {
+    const prefs = buildPrefs({
+      workspaceAwareness: { systemMonitor: { cpuStressThresholdPct: 100 } },
+    });
+    // CPU at exactly 100 → meets >= 100 threshold.
+    const exec = makeExecFileStub([{ err: null, stdout: "CPU usage: 90% user, 10% sys, 0% idle\n" }]);
+    const { monitor, timers, source } = buildMonitor({ prefs, exec });
+    monitor.start();
+    source.tap();
+    let stuckEvents = [];
+    monitor.onStuckOnProblem((evt) => stuckEvents.push(evt));
+    timers.advance(30000); timers.tickCpu();
+    timers.advance(120000); timers.tickCpu();
+    timers.tickTyping();
+    assert.strictEqual(stuckEvents.length, 1, "threshold = 100 must remain valid");
+    monitor.stop();
+  });
+});
+
 // ── Constants are exported for documentation/test access ─────────────────
 describe("system-monitor: module constants", () => {
   it("exposes the documented defaults via module.exports", () => {

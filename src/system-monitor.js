@@ -149,7 +149,10 @@ function initSystemMonitor(ctx) {
       typingPauseThresholdMs: (sys && Number.isFinite(sys.typingPauseThresholdMs) && sys.typingPauseThresholdMs > 0)
         ? sys.typingPauseThresholdMs
         : 30000,
-      cpuStressThresholdPct: (sys && Number.isFinite(sys.cpuStressThresholdPct) && sys.cpuStressThresholdPct > 0)
+      // Cap at 100: pressure samples clamp to [0,100], so a threshold > 100
+      // would silently disable the stuck signal (impossible to ever exceed).
+      // Treat out-of-range as "use default" rather than crashing.
+      cpuStressThresholdPct: (sys && Number.isFinite(sys.cpuStressThresholdPct) && sys.cpuStressThresholdPct > 0 && sys.cpuStressThresholdPct <= 100)
         ? sys.cpuStressThresholdPct
         : 70,
       cpuStressDurationMs: (sys && Number.isFinite(sys.cpuStressDurationMs) && sys.cpuStressDurationMs > 0)
@@ -276,8 +279,11 @@ function initSystemMonitor(ctx) {
   // Maintain `cpuStressSince` based on the latest cpuPressurePct sample.
   // Crossing-up: stamp `cpuStressSince = now()` (start of stress window).
   // Crossing-down: reset to null. Staying-above: leave `cpuStressSince` alone.
+  //
+  // Precondition: cpuPressurePct is a finite number. The single caller
+  // (sampleCpuPressure's onTopResult) early-returns on null, so we don't
+  // re-check here — keeping it would be dead code.
   function updateCpuStressWindow() {
-    if (cpuPressurePct === null) return;
     const { cpuStressThresholdPct } = getThresholds();
     if (cpuPressurePct >= cpuStressThresholdPct) {
       if (cpuStressSince === null) cpuStressSince = now();
@@ -355,14 +361,22 @@ function initSystemMonitor(ctx) {
     // Typing-poll + keystroke-source subscription only fire when a real
     // source is wired (v1 production: no source -> no work). Tests inject
     // a fake source to exercise the counting / decay path.
+    //
+    // Subscribe FIRST, register interval only on success — otherwise a
+    // throwing subscribe leaves the typing interval armed but receiving
+    // no keystrokes (wasted tick every 1s forever, plus a quietly broken
+    // stuck-on-problem evaluator since lastKeystrokeAt would stay null).
     if (keystrokeSource) {
-      typingIntervalHandle = setIntervalFn(typingTick, typingPollMs);
+      let off = null;
       try {
-        const off = keystrokeSource.subscribe(recordKeystroke);
-        unsubscribeKeystroke = (typeof off === "function") ? off : null;
+        off = keystrokeSource.subscribe(recordKeystroke);
       } catch (err) {
         log("error", "system-monitor: keystrokeSource.subscribe threw", err);
-        unsubscribeKeystroke = null;
+        off = null;
+      }
+      if (typeof off === "function") {
+        unsubscribeKeystroke = off;
+        typingIntervalHandle = setIntervalFn(typingTick, typingPollMs);
       }
     }
   }
@@ -382,11 +396,16 @@ function initSystemMonitor(ctx) {
       }
       unsubscribeKeystroke = null;
     }
-    // Reset window state so a subsequent start() doesn't carry stress
-    // history from before the stop.
+    // Reset cycle-local state so a subsequent start() starts clean. Without
+    // this, a quick stop()→start() cycle would surface pre-stop keystrokes
+    // via getTypingRate() and resurrect stale cpuPressurePct readings.
+    // Keep lastStuckFireAt + cpuParseFailedLogged across stop/start — these
+    // are session-wide (fatigue tracking + noise budget) and intentionally
+    // outlive any single detector cycle.
     cpuStressSince = null;
-    // Keep cpuParseFailedLogged across stop/start (it's a session-wide
-    // log-once flag; restart doesn't reset the operator's noise budget).
+    cpuPressurePct = null;
+    lastKeystrokeAt = null;
+    keystrokeStamps.length = 0;
   }
 
   // Returns keystrokes/min over the rolling typingWindowMs window. Returns
@@ -403,10 +422,13 @@ function initSystemMonitor(ctx) {
     return (keystrokeStamps.length * 60000) / typingWindowMs;
   }
 
-  // Returns last sampled CPU pressure (0-100) or null when:
+  // Returns the latest sampled CPU pressure (0-100). The value can be up
+  // to cpuPollMs old (default 30s) — callers comparing against fast-moving
+  // user state should account for that lag, or call a future synchronous
+  // probe if one is added. Returns null when:
   //   - Non-macOS platform, OR
   //   - Feature gate closed, OR
-  //   - Last `top` parse failed.
+  //   - `top` has never parsed successfully this session.
   function getCpuPressure() {
     if (isCpuGated()) return null;
     return cpuPressurePct;
