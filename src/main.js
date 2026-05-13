@@ -1581,12 +1581,14 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
 //    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
 //    cache stale state. `start()` is called from app.whenReady() below.
 //
-// `_workspaceDetector` and `_systemMonitor` are forward-declared so `_nudgesCtx`
-// readers can reference them; the actual factories are instantiated alongside
-// the `_osPermission` block further down (factories need `_osPermission`,
-// which itself depends on Electron `app`/`shell`).
+// `_workspaceDetector`, `_systemMonitor`, and `_longWindowTracker` are
+// forward-declared so `_nudgesCtx` readers can reference them; the actual
+// factories are instantiated alongside the `_osPermission` block further
+// down (factories need `_osPermission`, which itself depends on Electron
+// `app`/`shell`).
 let _workspaceDetector = null;
 let _systemMonitor = null;
+let _longWindowTracker = null;
 const _nudgesCtx = {
   getPrefs: () => _settingsController.getSnapshot(),
   setPrefs: (patch) => {
@@ -1616,6 +1618,14 @@ const _nudgesCtx = {
   // tolerate the null case (treat it as "unknown", not "zero").
   getTypingRate: () => (_systemMonitor ? _systemMonitor.getTypingRate() : null),
   getCpuPressure: () => (_systemMonitor ? _systemMonitor.getCpuPressure() : null),
+  // Long-window tracker (PAWPAL-2 Task 6). Returns ms since the user
+  // started on the current app, or `null` when the tracker isn't running,
+  // hasn't observed a first onAppChange yet, or the feature is gated off
+  // (workspaceAwareness.enabled / workspaceAwareness.longWindow.enabled
+  // both required). Callers must tolerate null (treat as "unknown", not
+  // "zero"). Task 7 will surface this reader to nudge biasing.
+  getCurrentWindowDurationMs: () =>
+    (_longWindowTracker ? _longWindowTracker.getCurrentWindowDurationMs() : null),
   // i18n with optional `{name}` substitution (matches existing i18n.js
   // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
   // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
@@ -3516,9 +3526,53 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
     },
   });
 }
+
+// ── Long-window tracker (PAWPAL-2 Task 6) ──
+// Subscribes to the workspace-detector's onAppChange events and tracks how
+// long the user has stayed on the same app. Fires `onLongWindow({app,
+// durationMs})` once duration crosses
+// `prefs.workspaceAwareness.longWindow.sameWindowThresholdMs` (default 90
+// min), with a 30-min cooldown between fires to avoid spam. Pure signal
+// source — does NOT trigger behaviors / nudges / state changes here; Task
+// 7 wires onLongWindow into the nudge biasing layer ("you've been on
+// Slack for 2 hours, want a break?").
+//
+// Why this is a separate detector instead of being inlined into
+// workspace-detector: the workspace-detector is a synchronous, pure
+// debounced poller — it owns "what app are we on RIGHT NOW?" The long-
+// window tracker is the temporal accumulator on top of that, which is a
+// genuinely different concern (different cadence, different state, fires
+// at different rates). Separating them keeps each one ~150 LOC and lets
+// Task 7's nudge biasing subscribe to either independently.
+//
+// Why timestamp comparison instead of setTimeout: the 90-min horizon
+// crosses macOS sleep/wake. setTimeout drifts (pauses during sleep, fires
+// late on resume); a tick-and-compare approach observes the full elapsed
+// delta on the first post-wake tick. Tick cadence is 60s, which is the
+// max firing lag against the 90-min threshold.
+//
+// Gates (silent no-op when any fails):
+//   1. `prefs.workspaceAwareness.enabled`
+//   2. `prefs.workspaceAwareness.longWindow.enabled`
+// Tracker depends on workspace-detector's event stream — without an
+// onAppChange there's no app to attribute time to. start() handles a
+// throwing onAppChange by logging and skipping the tick interval (Task 5
+// review lesson).
+{
+  const _initLongWindowTracker = require("./long-window-tracker");
+  _longWindowTracker = _initLongWindowTracker({
+    getPrefs: () => _settingsController.getSnapshot(),
+    workspaceDetector: _workspaceDetector,
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[long-window-tracker] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
 _settingsController.subscribeKey("workspaceAwareness", () => {
   if (_workspaceDetector) _workspaceDetector.reload();
   if (_systemMonitor) _systemMonitor.reload();
+  if (_longWindowTracker) _longWindowTracker.reload();
 });
 
 // ── Doctor tab IPC ──
@@ -4855,6 +4909,16 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: systemMonitor.start() failed:", err && err.message);
     }
+    // PAWPAL-2 Task 6: long-window tracker. Subscribes to workspace-detector
+    // events — must start AFTER _workspaceDetector.start() above so the
+    // first onAppChange confirmation can be observed. Same idempotent +
+    // internal-gate pattern (silent no-op when feature disabled); no work
+    // happens beyond a 60s tick until the user opts in via Settings.
+    try {
+      if (_longWindowTracker) _longWindowTracker.start();
+    } catch (err) {
+      console.warn("Clawd: longWindowTracker.start() failed:", err && err.message);
+    }
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
@@ -4922,6 +4986,13 @@ if (!gotTheLock) {
     // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
     // _state for pushBehavior + DND read-through, so stop them first.
     if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
+    // PAWPAL-2 Task 6: stop the long-window tracker BEFORE the workspace-
+    // detector. The tracker subscribes to the detector's onAppChange — stop
+    // the subscriber first so the detector doesn't dispatch into a torn-down
+    // listener. (Defensive: stop() is idempotent and both detectors tolerate
+    // out-of-order teardown, but ordering subscriber-before-source is the
+    // principled shutdown path.)
+    if (_longWindowTracker && typeof _longWindowTracker.stop === "function") _longWindowTracker.stop();
     // PAWPAL-2 Task 4: stop the workspace-detector interval before quit so
     // we don't leak a pending poll tick (DEFAULT_POLL_INTERVAL_MS) into
     // shutdown. Detector is a pure signal source, so stop ordering vs
