@@ -67,8 +67,12 @@ function createSystemEventsBridge(deps) {
 
     // lock / unlock — Electron raises both "suspend"/"resume" and
     // "lock-screen"/"unlock-screen" on macOS. We subscribe to both pairs;
-    // listeners de-dupe via timestamps if needed. Either pair tripping is
-    // enough to count as a lock event.
+    // either pair tripping is enough to count as a lock event. The dual
+    // emission means a single screen-lock action will fire the listener
+    // twice — de-duplication lives downstream in nudges.js via the
+    // screenLocked nudge's cooldownMs (5s), not in this module. Each event
+    // here carries `source` so a downstream consumer that DOES care can
+    // distinguish the two (none currently do).
     if (prefsToggles.screenLock) {
       onLockHandler = () => emit(lockListeners, { at: Date.now(), source: "lock-screen" });
       onUnlockHandler = () => emit(unlockListeners, { at: Date.now(), source: "unlock-screen" });
