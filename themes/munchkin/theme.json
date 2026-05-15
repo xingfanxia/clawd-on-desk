@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "name": "小肥",
+  "name": "\u5c0f\u80a5",
   "author": "user (custom from real cat)",
   "version": "1.0.0",
-  "description": "小肥 — 圆滚滚的金虎斑短腿英短，翡翠绿大眼睛 (Munchkin, gold tabby, jade eyes)",
+  "description": "\u5c0f\u80a5 \u2014 \u5706\u6eda\u6eda\u7684\u91d1\u864e\u6591\u77ed\u817f\u82f1\u77ed\uff0c\u7fe1\u7fe0\u7eff\u5927\u773c\u775b (Munchkin, gold tabby, jade eyes)",
   "viewBox": {
     "x": 0,
     "y": 0,
@@ -26,21 +26,47 @@
     "enabled": false
   },
   "states": {
-    "idle": ["munchkin-idle-dozing.apng"],
-    "yawning": ["munchkin-idle-dozing.apng"],
-    "dozing": ["munchkin-idle-dozing.apng"],
-    "collapsing": ["munchkin-collapse-sleep.apng"],
-    "thinking": ["munchkin-thinking.apng"],
-    "working": ["munchkin-working-typing.apng"],
-    "error": ["munchkin-error.apng"],
-    "attention": ["munchkin-happy.apng"],
-    "notification": ["munchkin-notification.apng"],
-    "sleeping": ["munchkin-sleeping.apng"],
-    "waking": ["munchkin-wake.apng"]
+    "idle": [
+      "munchkin-idle-dozing.apng"
+    ],
+    "yawning": [
+      "munchkin-idle-dozing.apng"
+    ],
+    "dozing": [
+      "munchkin-idle-dozing.apng"
+    ],
+    "collapsing": [
+      "munchkin-collapse-sleep.apng"
+    ],
+    "thinking": [
+      "munchkin-thinking.apng"
+    ],
+    "working": [
+      "munchkin-working-typing.apng"
+    ],
+    "error": [
+      "munchkin-error.apng"
+    ],
+    "attention": [
+      "munchkin-happy.apng"
+    ],
+    "notification": [
+      "munchkin-notification.apng"
+    ],
+    "sleeping": [
+      "munchkin-sleeping.apng"
+    ],
+    "waking": [
+      "munchkin-wake.apng"
+    ]
   },
   "idleVariants": {
-    "happy":  ["munchkin-happy.apng"],
-    "dozing": ["munchkin-idle-dozing.apng"]
+    "happy": [
+      "munchkin-happy.apng"
+    ],
+    "dozing": [
+      "munchkin-idle-dozing.apng"
+    ]
   },
   "workingTiers": [
     {
@@ -110,6 +136,9 @@
     },
     "headShake": {
       "fallbackTo": "error"
+    },
+    "headBob": {
+      "fallbackTo": "working"
     }
   },
   "miniMode": {
@@ -135,7 +164,7 @@
       "munchkin-sleeping.apng": 1.05,
       "munchkin-wake.apng": 1.05,
       "munchkin-react-poke.apng": 1.05,
-      "munchkin-walk-across.apng": 1.10
+      "munchkin-walk-across.apng": 1.1
     }
   }
 }

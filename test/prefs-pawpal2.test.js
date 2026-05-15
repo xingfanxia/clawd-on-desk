@@ -68,8 +68,13 @@ describe("PAWPAL-2 prefs.getDefaults: workspaceAwareness defaults", () => {
 });
 
 describe("PAWPAL-2 prefs.migrate: v3 → v4 workspaceAwareness", () => {
-  it("CURRENT_VERSION is 4", () => {
-    assert.strictEqual(prefs.CURRENT_VERSION, 4);
+  // Note: these assertions track post-migrate state for the v4 schema slice.
+  // After PAWPAL-3 bumped CURRENT_VERSION to 5, the version assertion uses
+  // prefs.CURRENT_VERSION (so future schema bumps don't require this file).
+  it("CURRENT_VERSION is the current schema version", () => {
+    assert.strictEqual(prefs.CURRENT_VERSION, prefs.CURRENT_VERSION);
+    // Sanity: ensure we're at v5 or later (PAWPAL-3 ships v5).
+    assert.ok(prefs.CURRENT_VERSION >= 5);
   });
 
   it("v3 file gains workspaceAwareness defaults on migrate", () => {
@@ -79,7 +84,7 @@ describe("PAWPAL-2 prefs.migrate: v3 → v4 workspaceAwareness", () => {
       nudges: { preset: "normal", overrides: {}, lastFiredAt: {} },
     };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 4);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
     assert.ok(upgraded.workspaceAwareness, "workspaceAwareness should be backfilled");
     assert.strictEqual(upgraded.workspaceAwareness.enabled, false);
     assert.strictEqual(upgraded.workspaceAwareness.activeApp.enabled, false);
@@ -90,39 +95,37 @@ describe("PAWPAL-2 prefs.migrate: v3 → v4 workspaceAwareness", () => {
     assert.strictEqual(upgraded.nudges.preset, "normal");
   });
 
-  it("v0 file (no version) cascades all the way to v4 with workspaceAwareness", () => {
+  it("v0 file (no version) cascades all the way to current with workspaceAwareness", () => {
     const raw = { lang: "zh" };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 4);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
     assert.ok(upgraded.workspaceAwareness);
     assert.strictEqual(upgraded.workspaceAwareness.enabled, false);
   });
 
-  it("pre-existing v4 prefs pass through migration unchanged", () => {
-    const raw = {
-      version: 4,
-      workspaceAwareness: {
+  it("pre-existing v4 prefs migrate forward to current version (no workspaceAwareness clobber)", () => {
+    const v4Workspace = {
+      enabled: true,
+      activeApp: {
         enabled: true,
-        activeApp: {
-          enabled: true,
-          categoryRules: { "MyEditor": "code" },
-        },
-        systemMonitor: {
-          enabled: true,
-          typingPauseThresholdMs: 45000,
-          cpuStressThresholdPct: 80,
-          cpuStressDurationMs: 60000,
-        },
-        longWindow: {
-          enabled: false,
-          sameWindowThresholdMs: 3600000,
-        },
+        categoryRules: { "MyEditor": "code" },
+      },
+      systemMonitor: {
+        enabled: true,
+        typingPauseThresholdMs: 45000,
+        cpuStressThresholdPct: 80,
+        cpuStressDurationMs: 60000,
+      },
+      longWindow: {
+        enabled: false,
+        sameWindowThresholdMs: 3600000,
       },
     };
+    const raw = { version: 4, workspaceAwareness: v4Workspace };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 4);
-    // Pre-existing block survives migration verbatim — no clobber.
-    assert.deepStrictEqual(upgraded.workspaceAwareness, raw.workspaceAwareness);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
+    // Pre-existing workspaceAwareness block survives — no clobber.
+    assert.deepStrictEqual(upgraded.workspaceAwareness, v4Workspace);
   });
 
   it("v3 prefs with a pre-existing workspaceAwareness block keep it (no overwrite)", () => {
@@ -138,7 +141,7 @@ describe("PAWPAL-2 prefs.migrate: v3 → v4 workspaceAwareness", () => {
       },
     };
     const upgraded = prefs.migrate(raw);
-    assert.strictEqual(upgraded.version, 4);
+    assert.strictEqual(upgraded.version, prefs.CURRENT_VERSION);
     assert.strictEqual(upgraded.workspaceAwareness.enabled, true);
     assert.strictEqual(upgraded.workspaceAwareness.activeApp.categoryRules["Custom"], "code");
     assert.strictEqual(upgraded.workspaceAwareness.systemMonitor.typingPauseThresholdMs, 99999);

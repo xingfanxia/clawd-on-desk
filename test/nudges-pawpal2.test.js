@@ -388,4 +388,54 @@ for (const preset of ["quiet", "normal", "coach"]) {
   Date.now = origNow;
 }
 
+// -----------------------------------------------------------------------------
+// CASE M (PAWPAL-3): integration nudges subscribe to integration.* channels.
+//   Three new nudges shipped in PAWPAL-3 — musicBpmHigh, batteryLow,
+//   screenLocked — each uses `type: "workspace"` (the same subscribe
+//   mechanism) with channels in the integration.* namespace. Verify the
+//   subscriptions register at start() and each can fire fireNudge.
+// -----------------------------------------------------------------------------
+{
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  // 6 channels total: 3 PAWPAL-2 (workspace.appChange / system.stuckOnProblem
+  // / longWindow.fire) + 3 PAWPAL-3 (integration.musicBpmHigh /
+  // integration.batteryLow / integration.screenLock).
+  assert.strictEqual(ctx._calls.subscribeWorkspace.length, 6,
+    "Case M: 6 workspace-typed subscriptions registered");
+  assert.ok(ctx._workspaceCallbacks.get("integration.musicBpmHigh"));
+  assert.ok(ctx._workspaceCallbacks.get("integration.batteryLow"));
+  assert.ok(ctx._workspaceCallbacks.get("integration.screenLock"));
+
+  // Fire each integration channel and verify the corresponding behavior is
+  // pushed via ctx.pushBehavior.
+  emit(ctx, "integration.musicBpmHigh", { name: "Track", artist: "Artist", bpm: 130, at: Date.now() });
+  emit(ctx, "integration.batteryLow", { pct: 15, at: Date.now() });
+  emit(ctx, "integration.screenLock", { at: Date.now(), source: "lock-screen" });
+
+  const behaviors = ctx._calls.pushBehavior.map((c) => c[0]);
+  assert.ok(behaviors.includes("headBob"), "Case M: musicBpmHigh pushes headBob");
+  assert.ok(behaviors.includes("carrying"), "Case M: batteryLow pushes carrying");
+  assert.ok(behaviors.includes("sleeping"), "Case M: screenLocked pushes sleeping");
+}
+
+// -----------------------------------------------------------------------------
+// CASE N (PAWPAL-3): quiet preset blocks musicBpmHigh + screenLocked but
+//   keeps batteryLow firing (safety signal). Mirrors the quiet-preset rule
+//   for the PAWPAL-2 nudges.
+// -----------------------------------------------------------------------------
+{
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "quiet", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  emit(ctx, "integration.musicBpmHigh", { name: "x", artist: "y", bpm: 130, at: Date.now() });
+  emit(ctx, "integration.batteryLow", { pct: 10, at: Date.now() });
+  emit(ctx, "integration.screenLock", { at: Date.now(), source: "lock-screen" });
+  const behaviors = ctx._calls.pushBehavior.map((c) => c[0]);
+  assert.strictEqual(behaviors.length, 1, "Case N: quiet allows only one of the 3 integration nudges");
+  assert.strictEqual(behaviors[0], "carrying",
+    "Case N: only batteryLow fires under quiet (safety signal)");
+}
+
 console.log("OK — nudges PAWPAL-2 unit tests pass");

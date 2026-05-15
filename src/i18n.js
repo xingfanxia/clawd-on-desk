@@ -169,6 +169,13 @@ const i18n = {
     nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
     nudgeLongWindowBreakTitle: "Same window for a while",
     nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
+    // PAWPAL-3 integration nudges
+    nudgeMusicBpmHighTitle: "Nice tempo",
+    nudgeMusicBpmHighBody: "Your cat is bobbing along to the beat.",
+    nudgeBatteryLowTitle: "Battery low",
+    nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
+    nudgeScreenLockedTitle: "Sleeping",
+    nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
   },
   zh: {
     size: "大小",
@@ -329,6 +336,13 @@ const i18n = {
     nudgeStuckOnProblemBody: "你停下打字、CPU 还在跑 — 喘口气，再读一遍题目。",
     nudgeLongWindowBreakTitle: "同一窗口太久了",
     nudgeLongWindowBreakBody: "你在这个应用里待了很久 — 切换一下，或者真的休息一下。",
+    // PAWPAL-3 integration nudges
+    nudgeMusicBpmHighTitle: "节奏不错",
+    nudgeMusicBpmHighBody: "你的猫跟着鼓点摇晃起来。",
+    nudgeBatteryLowTitle: "电量低",
+    nudgeBatteryLowBody: "你的猫抱着电池图标 — 该插电啦。",
+    nudgeScreenLockedTitle: "睡着了",
+    nudgeScreenLockedBody: "屏幕锁定 — 你的猫在打盹，等你回来。",
   },
   ko: {
     size: "크기",
@@ -488,6 +502,13 @@ const i18n = {
     nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
     nudgeLongWindowBreakTitle: "Same window for a while",
     nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
+    // PAWPAL-3 integration nudges — Korean stub falls back to English.
+    nudgeMusicBpmHighTitle: "Nice tempo",
+    nudgeMusicBpmHighBody: "Your cat is bobbing along to the beat.",
+    nudgeBatteryLowTitle: "Battery low",
+    nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
+    nudgeScreenLockedTitle: "Sleeping",
+    nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
   },
   ja: {
     size: "サイズ",
@@ -647,6 +668,13 @@ const i18n = {
     nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
     nudgeLongWindowBreakTitle: "Same window for a while",
     nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
+    // PAWPAL-3 integration nudges — Japanese stub falls back to English.
+    nudgeMusicBpmHighTitle: "Nice tempo",
+    nudgeMusicBpmHighBody: "Your cat is bobbing along to the beat.",
+    nudgeBatteryLowTitle: "Battery low",
+    nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
+    nudgeScreenLockedTitle: "Sleeping",
+    nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
   },
 };
 

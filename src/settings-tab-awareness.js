@@ -48,14 +48,19 @@
     quiet: {
       pomodoroBreak: true, hydrate: false, longSit: false, lateNightYawn: false,
       socialHeadShake: false, stuckOnProblem: false, longWindowBreak: true,
+      // PAWPAL-3 integration nudges. quiet keeps only batteryLow (safety
+      // signal) — musicBpmHigh and screenLocked are flavor, off at quiet.
+      musicBpmHigh: false, batteryLow: true, screenLocked: false,
     },
     normal: {
       pomodoroBreak: true, hydrate: true, longSit: true, lateNightYawn: true,
       socialHeadShake: true, stuckOnProblem: true, longWindowBreak: true,
+      musicBpmHigh: true, batteryLow: true, screenLocked: true,
     },
     coach: {
       pomodoroBreak: true, hydrate: true, longSit: true, lateNightYawn: true,
       socialHeadShake: true, stuckOnProblem: true, longWindowBreak: true,
+      musicBpmHigh: true, batteryLow: true, screenLocked: true,
     },
   };
 
@@ -268,6 +273,41 @@
       ...cur,
       longWindow: { ...prev, sameWindowThresholdMs: ms },
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // PAWPAL-3 Integrations — readers + writers (mirrors workspaceAwareness)
+  // ─────────────────────────────────────────────────────────────────────
+
+  function readIntegrations() {
+    const snap = (state && state.snapshot) || {};
+    const ig = snap.integrations;
+    if (!ig || typeof ig !== "object") {
+      return {
+        enabled: false,
+        music: { enabled: false, bpmThreshold: 120 },
+        battery: { enabled: false, lowThresholdPct: 20 },
+        systemEvents: {
+          enabled: false, networkDrop: true, dockConnect: true, screenLock: false,
+        },
+      };
+    }
+    return ig;
+  }
+
+  function writeIntegrations(next) {
+    if (!window.settingsAPI || typeof window.settingsAPI.update !== "function") return;
+    window.settingsAPI.update("integrations", next);
+  }
+
+  function setIntegrationsMasterEnabled(enabled) {
+    writeIntegrations({ ...readIntegrations(), enabled });
+  }
+
+  function setIntegrationsSubEnabled(subKey, enabled) {
+    const cur = readIntegrations();
+    const prev = cur[subKey] || {};
+    writeIntegrations({ ...cur, [subKey]: { ...prev, enabled } });
   }
 
   function setCategoryRules(rules) {
@@ -1043,6 +1083,145 @@
   // Soul-driven idle info row (PAWPAL-1) — preserved
   // ─────────────────────────────────────────────────────────────────────
 
+  // ─────────────────────────────────────────────────────────────────────
+  // PAWPAL-3 Integrations section
+  // ─────────────────────────────────────────────────────────────────────
+
+  // Compact toggle row for an integrations sub-feature. Same DOM shape as
+  // buildWorkspaceToggleRow but reads from prefs.integrations and writes
+  // back via setIntegrationsSubEnabled.
+  function buildIntegrationToggleRow(subKey, labelKey, descKey, masterEnabled) {
+    const ig = readIntegrations();
+    const sub = ig[subKey] || {};
+    const enabled = !!sub.enabled;
+
+    const row = document.createElement("div");
+    row.className = "row row-sub";
+
+    const text = document.createElement("div");
+    text.className = "row-text";
+    const label = document.createElement("span");
+    label.className = "row-label";
+    label.textContent = t(labelKey);
+    text.appendChild(label);
+    const desc = document.createElement("span");
+    desc.className = "row-desc";
+    desc.textContent = t(descKey);
+    text.appendChild(desc);
+    row.appendChild(text);
+
+    const control = document.createElement("div");
+    control.className = "row-control";
+    const sw = document.createElement("div");
+    sw.className = "switch";
+    sw.setAttribute("role", "switch");
+    sw.tabIndex = masterEnabled ? 0 : -1;
+    if (enabled) sw.classList.add("on");
+    sw.setAttribute("aria-checked", enabled ? "true" : "false");
+
+    if (!masterEnabled) {
+      sw.classList.add("disabled");
+      sw.setAttribute("aria-disabled", "true");
+    } else {
+      const toggle = () => {
+        const next = !enabled;
+        setIntegrationsSubEnabled(subKey, next);
+        sw.classList.toggle("on", next);
+        sw.setAttribute("aria-checked", next ? "true" : "false");
+      };
+      sw.addEventListener("click", toggle);
+      sw.addEventListener("keydown", (e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          toggle();
+        }
+      });
+    }
+    control.appendChild(sw);
+    row.appendChild(control);
+    return row;
+  }
+
+  function buildIntegrationsMasterToggleRow() {
+    const ig = readIntegrations();
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const text = document.createElement("div");
+    text.className = "row-text";
+    const label = document.createElement("span");
+    label.className = "row-label";
+    label.textContent = t("rowIntegrationsMasterToggle");
+    const desc = document.createElement("span");
+    desc.className = "row-desc";
+    desc.textContent = t("rowIntegrationsMasterToggleDesc");
+    text.appendChild(label);
+    text.appendChild(desc);
+    row.appendChild(text);
+
+    const control = document.createElement("div");
+    control.className = "row-control";
+    const sw = document.createElement("div");
+    sw.className = "switch";
+    sw.setAttribute("role", "switch");
+    sw.tabIndex = 0;
+    if (ig.enabled) sw.classList.add("on");
+    sw.setAttribute("aria-checked", ig.enabled ? "true" : "false");
+    const toggle = () => {
+      const next = !ig.enabled;
+      setIntegrationsMasterEnabled(next);
+      if (core && core.ops) core.ops.requestRender({ content: true });
+    };
+    sw.addEventListener("click", toggle);
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(); }
+    });
+    control.appendChild(sw);
+    row.appendChild(control);
+    return row;
+  }
+
+  function buildIntegrationsSection() {
+    const ig = readIntegrations();
+    const masterEnabled = !!ig.enabled;
+    const rows = [];
+
+    // Section description (full-width info row).
+    const descRow = document.createElement("div");
+    descRow.className = "row";
+    descRow.style.gridTemplateColumns = "1fr";
+    const descText = document.createElement("div");
+    descText.className = "row-text";
+    const descSpan = document.createElement("span");
+    descSpan.className = "row-desc";
+    descSpan.textContent = t("sectionIntegrationsDesc");
+    descText.appendChild(descSpan);
+    descRow.appendChild(descText);
+    rows.push(descRow);
+
+    rows.push(buildIntegrationsMasterToggleRow());
+    rows.push(buildIntegrationToggleRow(
+      "music",
+      "rowIntegrationsMusic",
+      "rowIntegrationsMusicDesc",
+      masterEnabled,
+    ));
+    rows.push(buildIntegrationToggleRow(
+      "battery",
+      "rowIntegrationsBattery",
+      "rowIntegrationsBatteryDesc",
+      masterEnabled,
+    ));
+    rows.push(buildIntegrationToggleRow(
+      "systemEvents",
+      "rowIntegrationsSystemEvents",
+      "rowIntegrationsSystemEventsDesc",
+      masterEnabled,
+    ));
+
+    return helpers.buildSection(t("sectionIntegrations"), rows);
+  }
+
   function buildSoulIdleRow() {
     const row = document.createElement("div");
     row.className = "row";
@@ -1079,6 +1258,13 @@
     // PAWPAL-2 Task 10: workspace awareness goes BELOW self-care nudges and
     // ABOVE soul-driven idle (per plan UI/UX section).
     parent.appendChild(buildWorkspaceSection());
+
+    // PAWPAL-3: integrations section. Placed below workspace awareness so the
+    // "system-introspection" sections sit together visually. No permission
+    // gate needed (music + battery use osascript / pmset directly; system
+    // events are Electron powerMonitor) — but each sub-feature still defaults
+    // off and the master `integrations.enabled` is the kill switch.
+    parent.appendChild(buildIntegrationsSection());
 
     parent.appendChild(helpers.buildSection(t("sectionSoulIdle"), [
       buildSoulIdleRow(),

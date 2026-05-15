@@ -45,6 +45,13 @@ const PRESET_CONFIG = {
     socialHeadShake: { enabled: false },
     stuckOnProblem:  { enabled: false },
     longWindowBreak: { enabled: true },
+    // PAWPAL-3 integration nudges. quiet preset allows only batteryLow
+    // (safety signal — even a quiet user benefits from a "your laptop is
+    // about to die" reminder). musicBpmHigh is a head-bob to high-BPM
+    // music — pure flavor, off in quiet. screenLocked is also flavor.
+    musicBpmHigh:    { enabled: false },
+    batteryLow:      { enabled: true },
+    screenLocked:    { enabled: false },
   },
   normal: {
     pomodoroBreak: { enabled: true, intervalMin: 25 },
@@ -54,6 +61,9 @@ const PRESET_CONFIG = {
     socialHeadShake: { enabled: true },
     stuckOnProblem:  { enabled: true },
     longWindowBreak: { enabled: true },
+    musicBpmHigh:    { enabled: true },
+    batteryLow:      { enabled: true },
+    screenLocked:    { enabled: true },
   },
   coach: {
     pomodoroBreak: { enabled: true, intervalMin: 25 },
@@ -61,10 +71,13 @@ const PRESET_CONFIG = {
     longSit:       { enabled: true, thresholdMin: 20 },
     lateNightYawn: { enabled: true, fromHour: 22, fromMinute: 30 },
     // "Firmer reaction at coach" is a soul/aggression cue (Task 8) — the
-    // preset schema here just enables/disables. coach gets all three.
+    // preset schema here just enables/disables. coach gets all six.
     socialHeadShake: { enabled: true },
     stuckOnProblem:  { enabled: true },
     longWindowBreak: { enabled: true },
+    musicBpmHigh:    { enabled: true },
+    batteryLow:      { enabled: true },
+    screenLocked:    { enabled: true },
   },
 };
 
@@ -159,6 +172,43 @@ const NUDGE_DEFINITIONS = {
     titleKey: "nudgeLongWindowBreakTitle",
     bodyKey: "nudgeLongWindowBreakBody",
     soundName: "confirm",
+  },
+  // PAWPAL-3 integration-driven nudges. Same `type: "workspace"` subscribe
+  // pattern as PAWPAL-2 — the only difference is the channel name lives in
+  // the integration namespace (`integration.<name>`). Channels are wired in
+  // src/main.js#subscribeWorkspace and dispatch to the appropriate
+  // src/integrations/*.js detector instance.
+  //
+  // Cooldowns: integration events have varying noise budgets. musicBpmHigh
+  // has detector-internal de-duping (only fires on track boundary) so the
+  // 1-min cooldown is a final guard against rapid track-switching. battery
+  // has internal latch (one fire per discharge cycle) so the 30-min cooldown
+  // is mostly belt-and-suspenders. screenLock has no internal cooldown.
+  musicBpmHigh: {
+    type: "workspace",
+    source: "integration.musicBpmHigh",
+    cooldownMs: 60_000,
+    behavior: "headBob",
+    titleKey: "nudgeMusicBpmHighTitle",
+    bodyKey: "nudgeMusicBpmHighBody",
+    soundName: null,
+  },
+  batteryLow: {
+    type: "workspace",
+    source: "integration.batteryLow",
+    cooldownMs: 30 * 60_000,
+    behavior: "carrying",
+    titleKey: "nudgeBatteryLowTitle",
+    bodyKey: "nudgeBatteryLowBody",
+    soundName: "confirm",
+  },
+  screenLocked: {
+    type: "workspace",
+    source: "integration.screenLock",
+    behavior: "sleeping",
+    titleKey: "nudgeScreenLockedTitle",
+    bodyKey: "nudgeScreenLockedBody",
+    soundName: null,
   },
 };
 
