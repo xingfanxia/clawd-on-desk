@@ -3567,6 +3567,15 @@ ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
       const newCategory = appInfo && appInfo.category;
       if (shouldCancelFocusOverlays(_lastWorkspaceCategory, newCategory)) {
         popBehavior("walkAcross");
+        // popBehavior("attention") DELIBERATELY dismisses an in-flight
+        // hydrate / longSit reminder on focus-enter. The two PAWPAL-1
+        // health nudges that ride the "attention" overlay (`hydrate` and
+        // `longSit`) will refire on their own schedules (90 min and 30 min
+        // respectively at the normal preset), so the user is not denied
+        // the reminder — it just doesn't visually interrupt the moment
+        // they pivot into deep work. If we ever route a non-recurring
+        // nudge through "attention", revisit this so we don't silently
+        // eat it.
         popBehavior("attention");
       }
       _lastWorkspaceCategory = newCategory;
