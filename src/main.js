@@ -1662,6 +1662,27 @@ const _nudgesCtx = {
   // no-op unsubscribe so the caller can't crash by invoking an undefined
   // return.
   //
+  // PAWPAL-4: surface the active theme's personality block so nudges.js can
+  // compute per-pet scheduling weights. Returns
+  //   { themeId, label, labelKey, modifiers: { nudgeId: weight, ... } }
+  // or `null` when the theme has no personality block. nudges.js layers the
+  // prefs.activeThemePersonalityOverrides on top of these modifiers.
+  getActiveThemePersonality: () => {
+    if (!activeTheme || typeof activeTheme !== "object") return null;
+    const p = activeTheme.personality;
+    if (!p || typeof p !== "object") {
+      // Themes without a personality block still get a themeId hook so the
+      // user can save overrides against them via Settings; the runtime
+      // treats missing modifiers as the all-1.0 baseline.
+      return { themeId: activeTheme._id || null, modifiers: {} };
+    }
+    return {
+      themeId: activeTheme._id || null,
+      label: p.label,
+      labelKey: p.labelKey,
+      modifiers: (p.modifiers && typeof p.modifiers === "object") ? p.modifiers : {},
+    };
+  },
   // The detector instances are forward-declared (above this block) and
   // instantiated later in app.whenReady — but _nudges.start() also runs in
   // whenReady AFTER those instantiations. The `? : () => {}` fallbacks below
@@ -4808,6 +4829,12 @@ function activateTheme(themeId, variantId) {
   _mini.refreshTheme();
   _state.refreshTheme();
   _tick.refreshTheme();
+  // PAWPAL-4: nudge cron intervals are computed from the active theme's
+  // personality.modifiers at start() time. A theme switch changes those
+  // modifiers, so the existing setInterval handles need to be torn down
+  // and rebuilt with the new weights. _nudges.reload() does exactly that
+  // (mirrors the DND-flip pattern in enableDoNotDisturb).
+  if (_nudges) _nudges.reload();
   if (_mini.getMiniMode()) _mini.handleDisplayChange();
 
   themeReloadInProgress = true;

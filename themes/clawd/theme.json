@@ -295,5 +295,21 @@
     "heightRatio": 1.3,
     "offsetX": -0.45,
     "offsetY": -0.25
+  },
+  "personality": {
+    "label": "balanced",
+    "labelKey": "personalityBalanced",
+    "modifiers": {
+      "pomodoroBreak": 1.0,
+      "hydrate": 1.0,
+      "longSit": 1.0,
+      "lateNightYawn": 1.0,
+      "socialHeadShake": 1.0,
+      "stuckOnProblem": 1.0,
+      "longWindowBreak": 1.0,
+      "musicBpmHigh": 1.0,
+      "batteryLow": 1.0,
+      "screenLocked": 1.0
+    }
   }
 }

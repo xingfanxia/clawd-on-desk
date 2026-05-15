@@ -166,5 +166,21 @@
       "ragdoll-react-poke.apng": 1.1,
       "ragdoll-walk-across.apng": 1.15
     }
+  },
+  "personality": {
+    "label": "wellness-keeper",
+    "labelKey": "personalityWellnessKeeper",
+    "modifiers": {
+      "pomodoroBreak": 1.0,
+      "hydrate": 1.5,
+      "longSit": 1.5,
+      "lateNightYawn": 1.5,
+      "socialHeadShake": 0.9,
+      "stuckOnProblem": 1.0,
+      "longWindowBreak": 1.2,
+      "musicBpmHigh": 1.0,
+      "batteryLow": 1.2,
+      "screenLocked": 1.0
+    }
   }
 }

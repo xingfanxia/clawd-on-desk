@@ -66,13 +66,13 @@ test.describe("PAWPAL-3 prefs.migrate: v4 → v5", () => {
       },
     };
     const migrated = prefs.migrate(v4Snapshot);
-    assert.strictEqual(migrated.version, 5);
+    assert.strictEqual(migrated.version, prefs.CURRENT_VERSION);
     assert.ok(migrated.integrations);
     assert.strictEqual(migrated.integrations.enabled, false);
     assert.strictEqual(migrated.integrations.music.bpmThreshold, 120);
   });
 
-  test.it("v5 prefs pass through unchanged (idempotent)", () => {
+  test.it("v5 prefs migrate forward to current version, integrations untouched", () => {
     const v5Snapshot = {
       version: 5,
       integrations: {
@@ -88,15 +88,15 @@ test.describe("PAWPAL-3 prefs.migrate: v4 → v5", () => {
       },
     };
     const migrated = prefs.migrate(v5Snapshot);
-    assert.strictEqual(migrated.version, 5);
+    assert.strictEqual(migrated.version, prefs.CURRENT_VERSION);
     assert.strictEqual(migrated.integrations.music.bpmThreshold, 140);
     assert.strictEqual(migrated.integrations.battery.lowThresholdPct, 15);
   });
 
-  test.it("v3 prefs (PAWPAL-1 only) climb cleanly through v4 → v5", () => {
+  test.it("v3 prefs (PAWPAL-1 only) climb cleanly through all subsequent versions", () => {
     const v3 = { version: 3, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } };
     const out = prefs.migrate(v3);
-    assert.strictEqual(out.version, 5);
+    assert.strictEqual(out.version, prefs.CURRENT_VERSION);
     assert.ok(out.workspaceAwareness, "v4 backfilled");
     assert.ok(out.integrations, "v5 backfilled");
   });
@@ -199,7 +199,10 @@ test.describe("PAWPAL-3 prefs.validate: integrations normalization", () => {
 });
 
 test.describe("PAWPAL-3 prefs.CURRENT_VERSION exposed", () => {
-  test.it("exports CURRENT_VERSION = 5", () => {
-    assert.strictEqual(prefs.CURRENT_VERSION, 5);
+  test.it("exports CURRENT_VERSION at least at PAWPAL-3's v5", () => {
+    // After PAWPAL-4 ships, CURRENT_VERSION is 6. This assertion floors at
+    // 5 to confirm PAWPAL-3 was applied; PAWPAL-4 tests pin the precise
+    // current value.
+    assert.ok(prefs.CURRENT_VERSION >= 5);
   });
 });

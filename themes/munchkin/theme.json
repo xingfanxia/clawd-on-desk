@@ -166,5 +166,21 @@
       "munchkin-react-poke.apng": 1.05,
       "munchkin-walk-across.apng": 1.1
     }
+  },
+  "personality": {
+    "label": "work-energizer",
+    "labelKey": "personalityWorkEnergizer",
+    "modifiers": {
+      "pomodoroBreak": 1.5,
+      "hydrate": 0.7,
+      "longSit": 1.0,
+      "lateNightYawn": 1.0,
+      "socialHeadShake": 0.8,
+      "stuckOnProblem": 1.2,
+      "longWindowBreak": 1.0,
+      "musicBpmHigh": 1.0,
+      "batteryLow": 1.0,
+      "screenLocked": 1.0
+    }
   }
 }

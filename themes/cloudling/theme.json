@@ -326,5 +326,21 @@
     "imgOffsetX": 0,
     "objBottom": 0.05,
     "imgBottom": 0.05
+  },
+  "personality": {
+    "label": "dreamy",
+    "labelKey": "personalityDreamy",
+    "modifiers": {
+      "pomodoroBreak": 0.9,
+      "hydrate": 1.0,
+      "longSit": 0.7,
+      "lateNightYawn": 1.5,
+      "socialHeadShake": 1.0,
+      "stuckOnProblem": 1.0,
+      "longWindowBreak": 1.0,
+      "musicBpmHigh": 1.0,
+      "batteryLow": 1.0,
+      "screenLocked": 1.0
+    }
   }
 }

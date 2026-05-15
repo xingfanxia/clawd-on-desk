@@ -27,6 +27,12 @@
 
 "use strict";
 
+// PAWPAL-4: source of truth for the personality weight clamp range lives
+// in prefs.js (the normalizer there drops out-of-range values; the runtime
+// fallback below clamps any value that survives). Importing keeps the two
+// surfaces in lock-step on a future range change.
+const { PERSONALITY_WEIGHT_MIN, PERSONALITY_WEIGHT_MAX } = require("./prefs");
+
 // NOTE: when adding a new preset or nudge here, also update PRESET_ENABLES
 // in src/settings-tab-awareness.js — it mirrors the `enabled` axis of this
 // table so the Awareness tab can surface a "suppressed by preset" hint in
@@ -307,11 +313,45 @@ module.exports = function initNudges(ctx) {
     }
   }
 
+  // PAWPAL-4: compute the effective scheduling weight for a nudge. Default 1.0.
+  // Theme.json `personality.modifiers[nudgeId]` overrides default; prefs
+  // `activeThemePersonalityOverrides[themeId][nudgeId]` overrides theme.
+  // Clamped to [0.1, 5.0] to prevent zero-rate or absurd-rate runtime values.
+  //
+  // The accessor expects ctx.getActiveThemePersonality to return
+  // { themeId, modifiers } — both fields optional. nudges.js tolerates a
+  // missing accessor (returns 1.0) so existing tests that don't wire the
+  // method don't need updates.
+  //
+  // PERSONALITY_WEIGHT_MIN/MAX are imported at top of file from prefs.js.
+  function clampWeight(w) {
+    if (!Number.isFinite(w)) return 1.0;
+    if (w < PERSONALITY_WEIGHT_MIN) return PERSONALITY_WEIGHT_MIN;
+    if (w > PERSONALITY_WEIGHT_MAX) return PERSONALITY_WEIGHT_MAX;
+    return w;
+  }
+  function effectiveWeight(nudgeId) {
+    const personality = (typeof ctx.getActiveThemePersonality === "function")
+      ? (ctx.getActiveThemePersonality() || {})
+      : {};
+    const themeMods = (personality && personality.modifiers) || {};
+    const themeId = personality && personality.themeId;
+    const themeDefault = themeMods[nudgeId];
+    const overrides = ((ctx.getPrefs && ctx.getPrefs()) || {}).activeThemePersonalityOverrides || {};
+    const userOverride = themeId ? ((overrides[themeId] || {})[nudgeId]) : undefined;
+    if (Number.isFinite(userOverride)) return clampWeight(userOverride);
+    if (Number.isFinite(themeDefault)) return clampWeight(themeDefault);
+    return 1.0;
+  }
+
   function startCronNudge(nudgeId) {
     const cfg = effectiveConfig(nudgeId);
     const intervalMin = cfg.intervalMin;
     if (!Number.isFinite(intervalMin) || intervalMin <= 0) return;
-    const ms = intervalMin * 60_000;
+    // PAWPAL-4: divide interval by weight. weight > 1 → shorter interval
+    // (more frequent fires); weight < 1 → longer interval (less frequent).
+    const weight = effectiveWeight(nudgeId);
+    const ms = (intervalMin * 60_000) / weight;
     const handle = setInterval(() => fireNudge(nudgeId), ms);
     cronTimers.set(nudgeId, handle);
   }
@@ -323,7 +363,12 @@ module.exports = function initNudges(ctx) {
       // and we haven't fired within the last threshold window.
       if (shouldFire("longSit")) {
         const cfg = effectiveConfig("longSit");
-        const thresholdMs = (cfg.thresholdMin || 30) * 60_000;
+        // PAWPAL-4: divide threshold by weight so wellness-keeper (weight>1)
+        // triggers longSit sooner; quiet personalities (weight<1) wait longer.
+        // The recently-fired guard uses the SAME effective threshold to keep
+        // the spacing window self-consistent.
+        const weight = effectiveWeight("longSit");
+        const thresholdMs = ((cfg.thresholdMin || 30) * 60_000) / weight;
         const stillSince = typeof ctx.getMouseStillSinceMs === "function"
           ? ctx.getMouseStillSinceMs()
           : Date.now();
@@ -460,5 +505,6 @@ module.exports = function initNudges(ctx) {
     _workspaceUnsubscribesForTesting: workspaceUnsubscribes,
     _PRESET_CONFIG: PRESET_CONFIG,
     _NUDGE_DEFINITIONS: NUDGE_DEFINITIONS,
+    _effectiveWeightForTesting: effectiveWeight,
   };
 };
