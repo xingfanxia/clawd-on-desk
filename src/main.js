@@ -1610,6 +1610,10 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
 let _workspaceDetector = null;
 let _systemMonitor = null;
 let _longWindowTracker = null;
+// PAWPAL-3: integrations registry (music / battery / system events). Forward-
+// declared so `_nudgesCtx.subscribeWorkspace` can route the integration
+// channels through it before the instantiation block runs further down.
+let _integrations = null;
 const _nudgesCtx = {
   getPrefs: () => _settingsController.getSnapshot(),
   setPrefs: (patch) => {
@@ -1670,6 +1674,23 @@ const _nudgesCtx = {
         return _systemMonitor ? _systemMonitor.onStuckOnProblem(callback) : () => {};
       case "longWindow.fire":
         return _longWindowTracker ? _longWindowTracker.onLongWindow(callback) : () => {};
+      // PAWPAL-3 integration channels. Same uniform subscribe surface — keeps
+      // nudges.js generic (one channel → one detector subscribe method, no
+      // special-casing per integration). All four channels are no-ops when
+      // `_integrations` hasn't been instantiated yet (forward-declared, set
+      // in the integrations block further down in this file).
+      case "integration.musicBpmHigh":
+        return _integrations ? _integrations.music.onBpmChange(callback) : () => {};
+      case "integration.batteryLow":
+        return _integrations ? _integrations.battery.onBatteryLow(callback) : () => {};
+      case "integration.screenLock":
+        return _integrations ? _integrations.systemEvents.onScreenLock(callback) : () => {};
+      case "integration.acChange":
+        // Pre-wired for PAWPAL-3.1. No NUDGE_DEFINITIONS entry consumes
+        // this channel today; the case exists so a future nudge can
+        // subscribe without touching main.js wiring. If PAWPAL-3.1 doesn't
+        // ship within ~2 milestones, prune this entry.
+        return _integrations ? _integrations.systemEvents.onAcChange(callback) : () => {};
       default:
         // eslint-disable-next-line no-console
         console.warn(`Clawd: nudges.subscribeWorkspace unknown channel: ${channel}`);
@@ -3650,6 +3671,45 @@ _settingsController.subscribeKey("workspaceAwareness", () => {
   if (_longWindowTracker) _longWindowTracker.reload();
 });
 
+// ── Integrations registry (PAWPAL-3) ──
+//
+// Music (Apple Music Now Playing) + Battery (pmset) + System events
+// (Electron powerMonitor lock/unlock/AC). Each sub-detector is constructed
+// here, gated internally on its own prefs.integrations.<source>.enabled
+// flag AND the master prefs.integrations.enabled, started in whenReady(),
+// stopped in before-quit. reload() fires on integrations pref changes.
+//
+// `runFile` is a Promise wrapper that delegates to the safe non-shell
+// subprocess helper from node:child_process — kept inline here so the
+// integration modules stay free of Node built-in imports (matches the
+// test-injection pattern in PAWPAL-2 detectors).
+{
+  const _subprocess = require("child_process");
+  function runFile(cmd, args, opts) {
+    return new Promise((resolve, reject) => {
+      _subprocess.execFile(cmd, args, opts || {}, (err, stdout, stderr) => {
+        if (err) reject(err);
+        else resolve({ stdout, stderr });
+      });
+    });
+  }
+  const { createIntegrationsRegistry } = require("./integrations");
+  const { powerMonitor } = require("electron");
+  _integrations = createIntegrationsRegistry({
+    getPrefs: () => _settingsController.getSnapshot(),
+    runFile,
+    powerMonitor,
+    isMac,
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[integrations] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
+_settingsController.subscribeKey("integrations", () => {
+  if (_integrations) _integrations.reload();
+});
+
 // ── Doctor tab IPC ──
 const { registerDoctorIpc } = require("./doctor-ipc");
 registerDoctorIpc({
@@ -4994,6 +5054,15 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: longWindowTracker.start() failed:", err && err.message);
     }
+    // PAWPAL-3: integrations registry. Same idempotent + internal-gate
+    // pattern — master toggle off → silent no-op; sub-toggle off →
+    // individual detector skipped. No subprocesses spawn until the user
+    // opts in via Settings → Awareness → Integrations.
+    try {
+      if (_integrations) _integrations.start();
+    } catch (err) {
+      console.warn("Clawd: integrations.start() failed:", err && err.message);
+    }
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
@@ -5077,6 +5146,10 @@ if (!gotTheLock) {
     // PAWPAL-2 Task 5: stop the system-monitor (CPU poll + typing tick).
     // Same pure-signal-source rationale; teardown ordering is flexible.
     if (_systemMonitor && typeof _systemMonitor.stop === "function") _systemMonitor.stop();
+    // PAWPAL-3: stop the integrations registry (music poll + battery poll +
+    // systemEvents powerMonitor listeners). reverse-start teardown handled
+    // inside the registry; one call here drains all three sub-detectors.
+    if (_integrations && typeof _integrations.stop === "function") _integrations.stop();
     if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();

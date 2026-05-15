@@ -1,5 +1,84 @@
 # Changelog
 
+## v0.9.0 — 2026-05-15 (PAWPAL-3)
+
+**New: External integrations (macOS-native subset).** Three new opt-in
+integration signal sources — Apple Music Now Playing (BPM-driven head bob),
+battery low (carrying behavior), and system events (screen lock / unlock,
+AC change) — each routed through the PAWPAL-1 nudge scheduler. Same opt-in-
+by-default + DND-aware structure as workspace awareness.
+
+### Added
+
+- **`src/integrations/` directory** — registry + 3 detector modules wired
+  through the existing `ctx.subscribeWorkspace` channel surface, so
+  `nudges.js` stays generic (one channel → one detector).
+  - `index.js` — `createIntegrationsRegistry` factory; gates each sub-
+    detector by `prefs.integrations.<source>.enabled` AND master
+    `integrations.enabled`. Reverse-order teardown, idempotent start/stop.
+  - `music.js` — polls Apple Music via `osascript` every 10s; emits
+    `music.bpmChange` on the LEADING edge of "track BPM >= threshold"
+    (per-track de-dup so repeated polls of the same high-BPM song don't
+    spam fire).
+  - `battery.js` — polls `pmset -g batt` every 60s. Edge-trigger on
+    "battery + pct <= threshold"; latched until the user goes on AC or
+    pct rises by `threshold + 5` (hysteresis prevents flapping).
+  - `system-events.js` — wraps Electron `powerMonitor` lock-screen /
+    unlock-screen / suspend / resume / on-ac / on-battery. Three exported
+    channels (onScreenLock, onScreenUnlock, onAcChange). Per-toggle
+    subscription so the noise budget can be tuned per user.
+- **3 new integration nudges**: `musicBpmHigh` (`headBob` behavior, 1-min
+  cooldown), `batteryLow` (`carrying` state, 30-min cooldown), `screenLocked`
+  (`sleeping` state, no cooldown). All flow through `shouldFire()` so
+  DND + preset + per-nudge overrides apply.
+- **`headBob` behavior** added to all 5 built-in themes
+  (calico/clawd/cloudling/munchkin/ragdoll) — falls back to `working` state
+  until dedicated APNG assets ship.
+- **Settings → Awareness → Integrations section** — master toggle + 3 sub-
+  feature toggles. Sits below Workspace Awareness, above Soul-driven idle.
+- **i18n keys** — 9 new keys (3 nudges × title+body + 6 settings strings)
+  across en/zh, with ko/ja English fallbacks per PAWPAL-1 convention.
+
+### Changed
+
+- **Prefs schema** v4 → v5 — adds `integrations` block (master + 3 sub-
+  blocks). All defaults `false`; opt-in only. Existing v4 users auto-
+  migrate (silent — no setting wakes up without explicit user action).
+  Prototype-pollution defense via `stripPrototypePollutionKeys` reused.
+- **`_nudgesCtx.subscribeWorkspace`** — extends with 4 new channels:
+  `integration.musicBpmHigh`, `integration.batteryLow`,
+  `integration.screenLock`, `integration.acChange`. Channels stay generic;
+  routing to the integration registry happens in main.js.
+- **`PRESET_ENABLES`** — extended from 7 to 10 nudge ids. quiet preset
+  keeps only `batteryLow` (safety signal); normal/coach get all 10.
+
+### Honored
+
+- **All 3 PAWPAL-1 invariants preserved**: behavior overlays compose over
+  state (no setState); Soul ↔ Nudge orthogonality (integrations are signal
+  sources only); aggression dial respects DND + preset + per-nudge override.
+
+### Out of scope (deferred to PAWPAL-3.1)
+
+- **Google Calendar 5-min warning** — requires `googleapis` dependency +
+  OAuth flow + token persistence. No equivalent infra in clawd-on-desk
+  today; significant new surface that warrants its own PR.
+- **Spotify Now Playing** — needs Web API OAuth (similar reason).
+- **Network drop nudge** — detector exists for screen-lock + AC; network
+  drop intentionally not wired (pet reacting to wifi loss could compound
+  user frustration).
+- **Per-app battery / music threshold sliders** in Settings — JSON file
+  edit only for v1; visual editors deferred.
+
+### Stats
+
+- 9 new src files (3 detectors + 1 registry index + 4 test files + 1
+  prefs-pawpal3 test file)
+- 1722 → 1776 tests (+54 new; 11 pre-existing failures unchanged)
+- ~1500 LOC added across src/integrations/ + test/integrations-*
+
+---
+
 ## v0.8.0 — 2026-05-XX (PAWPAL-2)
 
 **New: Workspace awareness.** Opt-in OS introspection layer biases cat's idle pose based on the active app (Code → working, YouTube → dozing, Figma → happy) and emits 3 new focus-mode nudges (head-shake on doom-scroll, thinking pose on typing+CPU stuck, walk-across on 90-min same-window). All gated behind Accessibility permission with silent-deny fallback.

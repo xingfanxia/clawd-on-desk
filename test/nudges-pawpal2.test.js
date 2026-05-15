@@ -388,4 +388,82 @@ for (const preset of ["quiet", "normal", "coach"]) {
   Date.now = origNow;
 }
 
+// -----------------------------------------------------------------------------
+// CASE M (PAWPAL-3): integration nudges subscribe to integration.* channels.
+//   Three new nudges shipped in PAWPAL-3 — musicBpmHigh, batteryLow,
+//   screenLocked — each uses `type: "workspace"` (the same subscribe
+//   mechanism) with channels in the integration.* namespace. Verify the
+//   subscriptions register at start() and each can fire fireNudge.
+// -----------------------------------------------------------------------------
+{
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  // 6 channels total: 3 PAWPAL-2 (workspace.appChange / system.stuckOnProblem
+  // / longWindow.fire) + 3 PAWPAL-3 (integration.musicBpmHigh /
+  // integration.batteryLow / integration.screenLock).
+  assert.strictEqual(ctx._calls.subscribeWorkspace.length, 6,
+    "Case M: 6 workspace-typed subscriptions registered");
+  assert.ok(ctx._workspaceCallbacks.get("integration.musicBpmHigh"));
+  assert.ok(ctx._workspaceCallbacks.get("integration.batteryLow"));
+  assert.ok(ctx._workspaceCallbacks.get("integration.screenLock"));
+
+  // Fire each integration channel and verify the corresponding behavior is
+  // pushed via ctx.pushBehavior.
+  emit(ctx, "integration.musicBpmHigh", { name: "Track", artist: "Artist", bpm: 130, at: Date.now() });
+  emit(ctx, "integration.batteryLow", { pct: 15, at: Date.now() });
+  emit(ctx, "integration.screenLock", { at: Date.now(), source: "lock-screen" });
+
+  const behaviors = ctx._calls.pushBehavior.map((c) => c[0]);
+  assert.ok(behaviors.includes("headBob"), "Case M: musicBpmHigh pushes headBob");
+  assert.ok(behaviors.includes("carrying"), "Case M: batteryLow pushes carrying");
+  assert.ok(behaviors.includes("sleeping"), "Case M: screenLocked pushes sleeping");
+}
+
+// -----------------------------------------------------------------------------
+// CASE N (PAWPAL-3): quiet preset blocks musicBpmHigh + screenLocked but
+//   keeps batteryLow firing (safety signal). Mirrors the quiet-preset rule
+//   for the PAWPAL-2 nudges.
+// -----------------------------------------------------------------------------
+{
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "quiet", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  emit(ctx, "integration.musicBpmHigh", { name: "x", artist: "y", bpm: 130, at: Date.now() });
+  emit(ctx, "integration.batteryLow", { pct: 10, at: Date.now() });
+  emit(ctx, "integration.screenLock", { at: Date.now(), source: "lock-screen" });
+  const behaviors = ctx._calls.pushBehavior.map((c) => c[0]);
+  assert.strictEqual(behaviors.length, 1, "Case N: quiet allows only one of the 3 integration nudges");
+  assert.strictEqual(behaviors[0], "carrying",
+    "Case N: only batteryLow fires under quiet (safety signal)");
+}
+
+// -----------------------------------------------------------------------------
+// CASE O (PAWPAL-3 review fix): screenLocked cooldown prevents double-fire on
+//   macOS where suspend + lock-screen are both raised for the same action.
+// -----------------------------------------------------------------------------
+{
+  const NOW = 1_710_000_000_000;
+  const origNow = Date.now;
+  Date.now = () => NOW;
+
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  emit(ctx, "integration.screenLock", { at: NOW, source: "lock-screen" });
+  emit(ctx, "integration.screenLock", { at: NOW + 5, source: "suspend" });
+  const sleeps = ctx._calls.pushBehavior.filter((c) => c[0] === "sleeping");
+  assert.strictEqual(sleeps.length, 1,
+    "Case O: only first lock event fires; second is cooldown-suppressed (5s window)");
+
+  // After 6s, a NEW lock event SHOULD fire.
+  Date.now = () => NOW + 6_000;
+  emit(ctx, "integration.screenLock", { at: NOW + 6_000, source: "lock-screen" });
+  const sleepsAfter = ctx._calls.pushBehavior.filter((c) => c[0] === "sleeping");
+  assert.strictEqual(sleepsAfter.length, 2,
+    "Case O: a fresh lock after cooldown clears does fire");
+
+  Date.now = origNow;
+}
+
 console.log("OK — nudges PAWPAL-2 unit tests pass");

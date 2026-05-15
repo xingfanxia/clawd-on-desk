@@ -296,16 +296,22 @@ describe("settings-tab-awareness (Workspace Awareness — PAWPAL-2 Task 10)", ()
       );
     });
 
-    it("PRESET_ENABLES covers all 7 nudge ids across all 3 presets", () => {
+    it("PRESET_ENABLES covers all 10 nudge ids across all 3 presets", () => {
       const h = loadAwarenessTabModule();
       const nudgeIds = [
+        // PAWPAL-1 health nudges
         "pomodoroBreak",
         "hydrate",
         "longSit",
         "lateNightYawn",
+        // PAWPAL-2 workspace nudges
         "socialHeadShake",
         "stuckOnProblem",
         "longWindowBreak",
+        // PAWPAL-3 integration nudges
+        "musicBpmHigh",
+        "batteryLow",
+        "screenLocked",
       ];
       for (const preset of ["quiet", "normal", "coach"]) {
         const map = h.PRESET_ENABLES[preset];

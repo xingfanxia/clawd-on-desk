@@ -260,6 +260,9 @@
     },
     "headShake": {
       "fallbackTo": "error"
+    },
+    "headBob": {
+      "fallbackTo": "attention"
     }
   },
   "miniMode": {

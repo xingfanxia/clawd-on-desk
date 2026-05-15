@@ -3,7 +3,7 @@
   "name": "Calico",
   "author": "rullerzhou",
   "version": "1.0.0",
-  "description": "A calico cat desk pet — AI-generated APNG animations",
+  "description": "A calico cat desk pet \u2014 AI-generated APNG animations",
   "viewBox": {
     "x": 0,
     "y": 0,
@@ -224,6 +224,9 @@
     },
     "headShake": {
       "fallbackTo": "error"
+    },
+    "headBob": {
+      "fallbackTo": "attention"
     }
   },
   "miniMode": {

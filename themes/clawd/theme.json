@@ -3,7 +3,7 @@
   "name": "Clawd",
   "author": "rullerzhou",
   "version": "1.0.0",
-  "description": "The original pixel crab — Clawd the Claude Code mascot",
+  "description": "The original pixel crab \u2014 Clawd the Claude Code mascot",
   "repo": "https://github.com/nicepkg/clawd",
   "viewBox": {
     "x": -15,
@@ -234,6 +234,9 @@
     },
     "headShake": {
       "fallbackTo": "error"
+    },
+    "headBob": {
+      "fallbackTo": "attention"
     }
   },
   "miniMode": {

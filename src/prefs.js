@@ -28,7 +28,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 4;
+const CURRENT_VERSION = 5;
 
 // Shared prototype-pollution defense for user-controllable maps. Returns a
 // shallow copy of `raw` with `__proto__` / `constructor` / `prototype` keys
@@ -113,6 +113,36 @@ function defaultWorkspaceAwareness() {
     longWindow: {
       enabled: false,
       sameWindowThresholdMs: 5400000,
+    },
+  };
+}
+
+// PAWPAL-3: integrations defaults. Three macOS-native event sources —
+// `music` (Apple Music Now Playing), `battery` (pmset -g batt), and
+// `systemEvents` (Electron powerMonitor lock/unlock/AC). All disabled by
+// default; the `integrations.enabled` master toggle is independent of
+// `workspaceAwareness.enabled` so a user can opt into one without the other.
+//
+// Note: Google Calendar + Spotify are deferred to PAWPAL-3.1 because they
+// need OAuth infrastructure that does not exist in clawd-on-desk today.
+function defaultIntegrations() {
+  return {
+    enabled: false,
+    music: {
+      enabled: false,
+      bpmThreshold: 120,
+    },
+    battery: {
+      enabled: false,
+      lowThresholdPct: 20,
+    },
+    systemEvents: {
+      enabled: false,
+      networkDrop: true,
+      dockConnect: true,
+      // Screen-lock off by default — common during meetings, would generate
+      // a lot of noise. User can opt in.
+      screenLock: false,
     },
   };
 }
@@ -280,6 +310,14 @@ const SCHEMA = {
     defaultFactory: defaultWorkspaceAwareness,
     normalize: normalizeWorkspaceAwareness,
   },
+  // PAWPAL-3: external integrations (music / battery / system events). Same
+  // opt-in-by-default structure as workspaceAwareness — master toggle plus
+  // per-source sub-blocks, all off until the user enables them in Settings.
+  integrations: {
+    type: "object",
+    defaultFactory: defaultIntegrations,
+    normalize: normalizeIntegrations,
+  },
 };
 
 const SCHEMA_KEYS = Object.freeze(Object.keys(SCHEMA));
@@ -417,6 +455,17 @@ function migrate(raw) {
       out.workspaceAwareness = defaultWorkspaceAwareness();
     }
     out.version = 4;
+  }
+  // v4 → v5: backfill `integrations` (PAWPAL-3). Same all-off pattern as
+  // workspaceAwareness — three sub-blocks (music / battery / systemEvents)
+  // each gated behind their own `enabled` and the master `integrations.
+  // enabled` toggle. Music + battery are macOS-native (no auth needed);
+  // calendar + Spotify are deferred to PAWPAL-3.1 (OAuth infrastructure).
+  if ((typeof out.version !== "number" ? 0 : out.version) < 5) {
+    if (out.integrations === undefined) {
+      out.integrations = defaultIntegrations();
+    }
+    out.version = 5;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
@@ -764,6 +813,90 @@ function normalizeWorkspaceAwareness(value, defaultsValue) {
     longWindow: {
       enabled: lwEnabled,
       sameWindowThresholdMs,
+    },
+  };
+}
+
+// PAWPAL-3: integrations normalizer. Same defensive structure as
+// normalizeWorkspaceAwareness — strip prototype pollution at every
+// level, coerce booleans, replace bad numbers with defaults.
+function normalizeIntegrations(value, defaultsValue) {
+  const defaults = defaultsValue && typeof defaultsValue === "object"
+    ? defaultsValue
+    : defaultIntegrations();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultIntegrations();
+  }
+  const safeRoot = stripPrototypePollutionKeys(value);
+
+  const enabled = typeof safeRoot.enabled === "boolean"
+    ? safeRoot.enabled
+    : defaults.enabled;
+
+  // music sub-block
+  const musicDefaults = defaults.music;
+  const musicRaw = (safeRoot.music && typeof safeRoot.music === "object" && !Array.isArray(safeRoot.music))
+    ? stripPrototypePollutionKeys(safeRoot.music)
+    : {};
+  const musicEnabled = typeof musicRaw.enabled === "boolean"
+    ? musicRaw.enabled
+    : musicDefaults.enabled;
+  // Clamp to a realistic music-BPM range. Below ~20 BPM the threshold
+  // matches every non-trivial track (effectively always-fire); above
+  // ~300 BPM no real music exists (effectively never-fire). Out-of-range
+  // values fall back to the documented default rather than getting
+  // clamped — preserves the "malformed file → defaults" recovery promise.
+  const bpmThreshold = (typeof musicRaw.bpmThreshold === "number"
+    && Number.isFinite(musicRaw.bpmThreshold)
+    && musicRaw.bpmThreshold >= 20
+    && musicRaw.bpmThreshold <= 300)
+    ? musicRaw.bpmThreshold
+    : musicDefaults.bpmThreshold;
+
+  // battery sub-block
+  const batteryDefaults = defaults.battery;
+  const batteryRaw = (safeRoot.battery && typeof safeRoot.battery === "object" && !Array.isArray(safeRoot.battery))
+    ? stripPrototypePollutionKeys(safeRoot.battery)
+    : {};
+  const batteryEnabled = typeof batteryRaw.enabled === "boolean"
+    ? batteryRaw.enabled
+    : batteryDefaults.enabled;
+  // 0-100 clamp; threshold == 0 disables the nudge but a negative or NaN
+  // input falls back to the documented default.
+  const lowThresholdPct = (typeof batteryRaw.lowThresholdPct === "number"
+    && Number.isFinite(batteryRaw.lowThresholdPct)
+    && batteryRaw.lowThresholdPct >= 0
+    && batteryRaw.lowThresholdPct <= 100)
+    ? batteryRaw.lowThresholdPct
+    : batteryDefaults.lowThresholdPct;
+
+  // systemEvents sub-block
+  const seDefaults = defaults.systemEvents;
+  const seRaw = (safeRoot.systemEvents && typeof safeRoot.systemEvents === "object" && !Array.isArray(safeRoot.systemEvents))
+    ? stripPrototypePollutionKeys(safeRoot.systemEvents)
+    : {};
+  const seEnabled = typeof seRaw.enabled === "boolean"
+    ? seRaw.enabled
+    : seDefaults.enabled;
+  const networkDrop = typeof seRaw.networkDrop === "boolean"
+    ? seRaw.networkDrop
+    : seDefaults.networkDrop;
+  const dockConnect = typeof seRaw.dockConnect === "boolean"
+    ? seRaw.dockConnect
+    : seDefaults.dockConnect;
+  const screenLock = typeof seRaw.screenLock === "boolean"
+    ? seRaw.screenLock
+    : seDefaults.screenLock;
+
+  return {
+    enabled,
+    music: { enabled: musicEnabled, bpmThreshold },
+    battery: { enabled: batteryEnabled, lowThresholdPct },
+    systemEvents: {
+      enabled: seEnabled,
+      networkDrop,
+      dockConnect,
+      screenLock,
     },
   };
 }
