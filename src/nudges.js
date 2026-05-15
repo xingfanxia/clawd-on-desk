@@ -124,6 +124,12 @@ const NUDGE_DEFINITIONS = {
     type: "workspace",
     source: "workspace.appChange",
     trigger: { onCategory: "social" },
+    // 5-min cooldown. Workspace-detector fires once per CONFIRMED app
+    // switch, so without this a user bouncing Twitter ↔ VSCode ↔ Twitter
+    // would get three head-shakes in minutes. Detector-level cooldowns
+    // (stuckOnProblem, longWindowBreak) handle their own spacing — only
+    // workspace.appChange-fed nudges need this layer's gate.
+    cooldownMs: 5 * 60_000,
     // headShake is a new behavior id (Task 11 will wire fallbackTo: "error"
     // for themes that lack it). Visual-only — no sound — because shaking
     // its head IS the message; an audible ping on top would over-cue what's
@@ -321,6 +327,19 @@ module.exports = function initNudges(ctx) {
         // keeping the early-return here avoids unnecessary call frames for
         // the very-common "preset disables this nudge" case.
         if (!shouldFire(id)) return;
+        // Workspace-nudge cooldown gate. Detectors with internal cooldowns
+        // (system-monitor for stuckOnProblem, long-window-tracker for
+        // longWindowBreak) already enforce their own spacing. But workspace.
+        // appChange fires once per CONFIRMED app switch — without a layer-
+        // level cooldown a user bouncing Twitter ↔ VSCode ↔ Twitter would
+        // get three socialHeadShakes in minutes. cooldownMs (read from the
+        // nudge definition) adds that minimum spacing here, reusing the
+        // already-persisted prefs.nudges.lastFiredAt[id] timestamp the same
+        // way longSit / lateNightYawn check theirs in startDetectors().
+        if (Number.isFinite(def.cooldownMs) && def.cooldownMs > 0) {
+          const lastFired = ((ctx.getPrefs() || {}).nudges || {}).lastFiredAt || {};
+          if (Date.now() - (lastFired[id] || 0) < def.cooldownMs) return;
+        }
         // Detectors wrap their listener callbacks in try/catch, but they
         // attribute errors at the detector layer — losing nudgeId context.
         // Wrap fireNudge here so a thrown fireNudge surfaces WHICH nudge

@@ -345,4 +345,47 @@ for (const preset of ["quiet", "normal", "coach"]) {
     "Case K: missing subscribeWorkspace → no-op (no subscriptions stored)");
 }
 
+// -----------------------------------------------------------------------------
+// CASE L: socialHeadShake cooldown (review feedback Issue 1).
+//   Workspace-detector fires once per CONFIRMED app switch, so without a
+//   nudge-layer cooldown a rapid app-bouncing user (Twitter ↔ VSCode ↔ Twitter)
+//   would get multiple shakes in minutes. Verify cooldownMs gate enforces
+//   minimum spacing, and that fireNudge fires the SECOND time after enough
+//   time has elapsed.
+// -----------------------------------------------------------------------------
+{
+  const NOW = 1_700_000_000_000;
+  const ctx = makeCtx({
+    prefs: {
+      version: 4,
+      nudges: {
+        preset: "normal",
+        overrides: {},
+        // Pre-seed lastFiredAt for socialHeadShake to "1 minute ago" — well
+        // inside the 5-min cooldown window.
+        lastFiredAt: { socialHeadShake: NOW - 60_000 },
+      },
+    },
+  });
+  // Pin Date.now() so the cooldown comparison is deterministic. (The other
+  // tests don't need this because they don't assert on cooldown windows.)
+  const origNow = Date.now;
+  Date.now = () => NOW;
+
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  emit(ctx, "workspace.appChange", { name: "Slack", category: "social", sinceMs: NOW });
+  assert.strictEqual(ctx._calls.pushBehavior.length, 0,
+    "Case L1: socialHeadShake suppressed when last fire was 1 min ago (cooldown 5 min)");
+
+  // Advance the clock past the 5-min cooldown. nudges.js reads Date.now() at
+  // gate time, so flipping the mock is enough — no need to reload the module.
+  Date.now = () => NOW + (6 * 60_000);
+  emit(ctx, "workspace.appChange", { name: "Slack", category: "social", sinceMs: NOW + 6 * 60_000 });
+  assert.strictEqual(ctx._calls.pushBehavior.length, 1,
+    "Case L2: socialHeadShake fires after cooldown clears");
+
+  Date.now = origNow;
+}
+
 console.log("OK — nudges PAWPAL-2 unit tests pass");
