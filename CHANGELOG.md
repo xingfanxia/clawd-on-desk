@@ -13,10 +13,10 @@ break. Users can override individual modifiers per theme via prefs.
   `labelKey`, and `modifiers` map (nudgeId → weight). Five distinct
   personalities ship out of the box:
   - **clawd** — Balanced (all 1.0; no modification)
-  - **calico** — Playful (socialHeadShake 1.3x; minor hydration tweak)
-  - **cloudling** — Dreamy (lateNightYawn 1.5x; longSit 0.7x)
-  - **munchkin** — Work-energizer (pomodoro 1.5x, hydrate 0.7x)
-  - **ragdoll** — Wellness-keeper (hydrate 1.5x, longSit 1.5x, lateNight 1.5x)
+  - **calico** — Playful (`hydrate` 0.9, `socialHeadShake` 1.3)
+  - **cloudling** — Dreamy (`pomodoroBreak` 0.9, `longSit` 0.7, `lateNightYawn` 1.5)
+  - **munchkin** — Work-energizer (`pomodoroBreak` 1.5, `hydrate` 0.7, `socialHeadShake` 0.8, `stuckOnProblem` 1.2)
+  - **ragdoll** — Wellness-keeper (`hydrate` 1.5, `longSit` 1.5, `lateNightYawn` 1.5, `socialHeadShake` 0.9, `longWindowBreak` 1.2, `batteryLow` 1.2)
 - **`effectiveWeight(nudgeId)` in `nudges.js`** — computes the
   multiplier that divides the schedule interval. Weight > 1 → more
   frequent; weight < 1 → less frequent. Clamped to [0.1, 5.0].

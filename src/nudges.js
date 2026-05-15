@@ -27,6 +27,12 @@
 
 "use strict";
 
+// PAWPAL-4: source of truth for the personality weight clamp range lives
+// in prefs.js (the normalizer there drops out-of-range values; the runtime
+// fallback below clamps any value that survives). Importing keeps the two
+// surfaces in lock-step on a future range change.
+const { PERSONALITY_WEIGHT_MIN, PERSONALITY_WEIGHT_MAX } = require("./prefs");
+
 // NOTE: when adding a new preset or nudge here, also update PRESET_ENABLES
 // in src/settings-tab-awareness.js — it mirrors the `enabled` axis of this
 // table so the Awareness tab can surface a "suppressed by preset" hint in
@@ -316,8 +322,8 @@ module.exports = function initNudges(ctx) {
   // { themeId, modifiers } — both fields optional. nudges.js tolerates a
   // missing accessor (returns 1.0) so existing tests that don't wire the
   // method don't need updates.
-  const PERSONALITY_WEIGHT_MIN = 0.1;
-  const PERSONALITY_WEIGHT_MAX = 5.0;
+  //
+  // PERSONALITY_WEIGHT_MIN/MAX are imported at top of file from prefs.js.
   function clampWeight(w) {
     if (!Number.isFinite(w)) return 1.0;
     if (w < PERSONALITY_WEIGHT_MIN) return PERSONALITY_WEIGHT_MIN;

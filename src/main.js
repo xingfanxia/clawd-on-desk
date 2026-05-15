@@ -4829,6 +4829,12 @@ function activateTheme(themeId, variantId) {
   _mini.refreshTheme();
   _state.refreshTheme();
   _tick.refreshTheme();
+  // PAWPAL-4: nudge cron intervals are computed from the active theme's
+  // personality.modifiers at start() time. A theme switch changes those
+  // modifiers, so the existing setInterval handles need to be torn down
+  // and rebuilt with the new weights. _nudges.reload() does exactly that
+  // (mirrors the DND-flip pattern in enableDoNotDisturb).
+  if (_nudges) _nudges.reload();
   if (_mini.getMiniMode()) _mini.handleDisplayChange();
 
   themeReloadInProgress = true;
