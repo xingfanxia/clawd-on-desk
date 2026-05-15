@@ -138,7 +138,7 @@
       "fallbackTo": "error"
     },
     "headBob": {
-      "fallbackTo": "working"
+      "fallbackTo": "attention"
     }
   },
   "miniMode": {

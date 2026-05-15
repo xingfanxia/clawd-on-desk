@@ -1686,6 +1686,10 @@ const _nudgesCtx = {
       case "integration.screenLock":
         return _integrations ? _integrations.systemEvents.onScreenLock(callback) : () => {};
       case "integration.acChange":
+        // Pre-wired for PAWPAL-3.1. No NUDGE_DEFINITIONS entry consumes
+        // this channel today; the case exists so a future nudge can
+        // subscribe without touching main.js wiring. If PAWPAL-3.1 doesn't
+        // ship within ~2 milestones, prune this entry.
         return _integrations ? _integrations.systemEvents.onAcChange(callback) : () => {};
       default:
         // eslint-disable-next-line no-console

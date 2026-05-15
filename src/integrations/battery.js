@@ -92,13 +92,23 @@ function createBatteryMonitor(deps) {
     timer = setInterval(tick, BATTERY_POLL_MS);
   }
 
-  function stop() {
+  // stop() takes an optional flag controlling whether the latch
+  // (firedSinceEnteringLow / lastOnBattery) is reset. The registry's
+  // reload() path calls stop({ keepLatch: true }) so an unrelated settings
+  // change (e.g. toggling systemEvents.screenLock) does NOT cause a second
+  // batteryLow nudge to fire immediately after the user is still at 15%
+  // and was already nudged once. Full teardown (app exit, isMac=false at
+  // boot) calls stop() with no args → latch reset.
+  function stop(opts) {
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
-    firedSinceEnteringLow = false;
-    lastOnBattery = null;
+    const keepLatch = !!(opts && opts.keepLatch);
+    if (!keepLatch) {
+      firedSinceEnteringLow = false;
+      lastOnBattery = null;
+    }
   }
 
   function onBatteryLow(cb) {

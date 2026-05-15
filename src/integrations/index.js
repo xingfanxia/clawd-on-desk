@@ -73,7 +73,14 @@ function createIntegrationsRegistry(ctx) {
     }
   }
 
-  function stop() {
+  // stop({ keepLatch }) — pass-through flag for detectors that maintain
+  // edge-trigger state across stop/start cycles. battery.js uses this to
+  // preserve `firedSinceEnteringLow` so toggling an unrelated sub-feature
+  // in Settings doesn't re-fire the already-acknowledged batteryLow nudge.
+  // music + systemEvents are stateless w.r.t. their last-fired latch
+  // (music re-emits on the NEXT track-boundary; systemEvents has no
+  // cooldown state) so the flag is a no-op for them.
+  function stop(opts) {
     if (!started) return;
     started = false;
     for (const [name, detector] of [
@@ -81,12 +88,17 @@ function createIntegrationsRegistry(ctx) {
       ["battery", battery],
       ["music", music],
     ]) {
-      try { detector.stop(); }
+      try { detector.stop(opts); }
       catch (err) { log("error", `integrations: ${name}.stop failed`, err); }
     }
   }
 
-  function reload() { stop(); start(); }
+  function reload() {
+    // Preserve battery latch across settings-driven reloads — see comment
+    // on stop().
+    stop({ keepLatch: true });
+    start();
+  }
 
   return {
     start, stop, reload,

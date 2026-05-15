@@ -841,9 +841,15 @@ function normalizeIntegrations(value, defaultsValue) {
   const musicEnabled = typeof musicRaw.enabled === "boolean"
     ? musicRaw.enabled
     : musicDefaults.enabled;
+  // Clamp to a realistic music-BPM range. Below ~20 BPM the threshold
+  // matches every non-trivial track (effectively always-fire); above
+  // ~300 BPM no real music exists (effectively never-fire). Out-of-range
+  // values fall back to the documented default rather than getting
+  // clamped — preserves the "malformed file → defaults" recovery promise.
   const bpmThreshold = (typeof musicRaw.bpmThreshold === "number"
     && Number.isFinite(musicRaw.bpmThreshold)
-    && musicRaw.bpmThreshold > 0)
+    && musicRaw.bpmThreshold >= 20
+    && musicRaw.bpmThreshold <= 300)
     ? musicRaw.bpmThreshold
     : musicDefaults.bpmThreshold;
 

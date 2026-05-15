@@ -438,4 +438,32 @@ for (const preset of ["quiet", "normal", "coach"]) {
     "Case N: only batteryLow fires under quiet (safety signal)");
 }
 
+// -----------------------------------------------------------------------------
+// CASE O (PAWPAL-3 review fix): screenLocked cooldown prevents double-fire on
+//   macOS where suspend + lock-screen are both raised for the same action.
+// -----------------------------------------------------------------------------
+{
+  const NOW = 1_710_000_000_000;
+  const origNow = Date.now;
+  Date.now = () => NOW;
+
+  const ctx = makeCtx({ prefs: { version: 5, nudges: { preset: "normal", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._startWorkspaceNudgesForTesting();
+  emit(ctx, "integration.screenLock", { at: NOW, source: "lock-screen" });
+  emit(ctx, "integration.screenLock", { at: NOW + 5, source: "suspend" });
+  const sleeps = ctx._calls.pushBehavior.filter((c) => c[0] === "sleeping");
+  assert.strictEqual(sleeps.length, 1,
+    "Case O: only first lock event fires; second is cooldown-suppressed (5s window)");
+
+  // After 6s, a NEW lock event SHOULD fire.
+  Date.now = () => NOW + 6_000;
+  emit(ctx, "integration.screenLock", { at: NOW + 6_000, source: "lock-screen" });
+  const sleepsAfter = ctx._calls.pushBehavior.filter((c) => c[0] === "sleeping");
+  assert.strictEqual(sleepsAfter.length, 2,
+    "Case O: a fresh lock after cooldown clears does fire");
+
+  Date.now = origNow;
+}
+
 console.log("OK — nudges PAWPAL-2 unit tests pass");

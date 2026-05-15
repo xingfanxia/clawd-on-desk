@@ -158,6 +158,32 @@ test.describe("PAWPAL-3 prefs.validate: integrations normalization", () => {
     assert.strictEqual(out.integrations.music.bpmThreshold, 120);
   });
 
+  test.it("bpmThreshold clamped to [20, 300] — out-of-range falls back to default (review fix)", () => {
+    const tooLow = prefs.validate({
+      version: prefs.CURRENT_VERSION,
+      integrations: { music: { bpmThreshold: 5 } },
+    });
+    assert.strictEqual(tooLow.integrations.music.bpmThreshold, 120, "below 20 falls back to default");
+
+    const tooHigh = prefs.validate({
+      version: prefs.CURRENT_VERSION,
+      integrations: { music: { bpmThreshold: 500 } },
+    });
+    assert.strictEqual(tooHigh.integrations.music.bpmThreshold, 120, "above 300 falls back to default");
+
+    const okLow = prefs.validate({
+      version: prefs.CURRENT_VERSION,
+      integrations: { music: { bpmThreshold: 20 } },
+    });
+    assert.strictEqual(okLow.integrations.music.bpmThreshold, 20, "20 is in-range");
+
+    const okHigh = prefs.validate({
+      version: prefs.CURRENT_VERSION,
+      integrations: { music: { bpmThreshold: 300 } },
+    });
+    assert.strictEqual(okHigh.integrations.music.bpmThreshold, 300, "300 is in-range");
+  });
+
   test.it("non-boolean systemEvents toggles fall back to defaults", () => {
     const raw = {
       version: 5,

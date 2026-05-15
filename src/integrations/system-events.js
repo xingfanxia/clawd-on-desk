@@ -31,6 +31,11 @@ function createSystemEventsBridge(deps) {
   const lockListeners = new Set();
   const unlockListeners = new Set();
   const acListeners = new Set();
+  // prefsToggles.networkDrop is read from prefs but NOT yet wired to a real
+  // listener — no nudge consumes it in v1. The slot exists so PAWPAL-3.1
+  // can attach a `net.online` listener without re-touching the prefs
+  // surface or the registry contract. If 3.1 doesn't ship within ~2
+  // milestones, remove the slot from both prefs.js and this module.
   let prefsToggles = { screenLock: false, networkDrop: true, dockConnect: true };
   let started = false;
 

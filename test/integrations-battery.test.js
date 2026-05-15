@@ -125,6 +125,47 @@ test.describe("createBatteryMonitor", () => {
     monitor.stop();
   });
 
+  test.it("stop({ keepLatch: true }) preserves firedSinceEnteringLow (review fix)", async () => {
+    // Regression for review Issue 2: settings-driven reload caused
+    // battery latch to reset, re-firing the nudge for a user already
+    // at low battery.
+    const monitor = createBatteryMonitor({
+      runFile: async () => ({ stdout: "Now drawing from 'Battery Power'\n 15%; discharging" }),
+      log: () => {},
+      isMac: true,
+    });
+    const fired = [];
+    monitor.onBatteryLow((e) => fired.push(e));
+    monitor.start({ lowThresholdPct: 20 });
+    await monitor.__test.tick();
+    assert.strictEqual(fired.length, 1);
+
+    // Simulate registry.reload() — stop({ keepLatch: true }) + start().
+    monitor.stop({ keepLatch: true });
+    assert.strictEqual(monitor.__test.getFiredSinceEnteringLow(), true,
+      "latch preserved after stop({ keepLatch: true })");
+    monitor.start({ lowThresholdPct: 20 });
+    await monitor.__test.tick();
+    assert.strictEqual(fired.length, 1, "no re-fire after reload at same low battery");
+
+    monitor.stop();
+  });
+
+  test.it("stop() (no args) resets latch — full teardown path", async () => {
+    const monitor = createBatteryMonitor({
+      runFile: async () => ({ stdout: "Now drawing from 'Battery Power'\n 15%; discharging" }),
+      log: () => {},
+      isMac: true,
+    });
+    monitor.start({ lowThresholdPct: 20 });
+    await monitor.__test.tick();
+    monitor.stop();
+    assert.strictEqual(monitor.__test.getFiredSinceEnteringLow(), false,
+      "latch reset by plain stop()");
+    assert.strictEqual(monitor.__test.getLastOnBattery(), null,
+      "lastOnBattery reset by plain stop()");
+  });
+
   test.it("invalid threshold falls back to default (20%)", async () => {
     const monitor = createBatteryMonitor({
       runFile: async () => ({ stdout: "Now drawing from 'Battery Power'\n 19%; discharging" }),

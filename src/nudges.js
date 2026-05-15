@@ -205,6 +205,13 @@ const NUDGE_DEFINITIONS = {
   screenLocked: {
     type: "workspace",
     source: "integration.screenLock",
+    // 5s cooldown — macOS Electron raises BOTH `suspend` AND `lock-screen`
+    // on a single screen-lock action, and system-events.js routes both to
+    // the same lockListeners set. Without a cooldown the user would get
+    // two `sleeping` overlays pushed within milliseconds. 5s is well below
+    // any legitimate re-lock and well above the millisecond gap between
+    // the paired events.
+    cooldownMs: 5_000,
     behavior: "sleeping",
     titleKey: "nudgeScreenLockedTitle",
     bodyKey: "nudgeScreenLockedBody",
