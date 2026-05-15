@@ -144,4 +144,92 @@ function makeCtx(overrides = {}) {
   assert.strictEqual(ctx._calls.playSound.length, 0, "lateNightYawn has no sound");
 }
 
+// ---------------------------------------------------------------------------
+// PAWPAL-2 invariant #2 regression: health nudges (the 4 PAWPAL-1 nudges)
+// must be UNCHANGED by the addition of the 3 workspace-typed nudges. These
+// tests don't subscribe to ctx.subscribeWorkspace at all — they prove that
+// the health nudge path through fireNudge / shouldFire / lastFiredAt is
+// not perturbed by the presence of socialHeadShake / stuckOnProblem /
+// longWindowBreak in NUDGE_DEFINITIONS.
+// ---------------------------------------------------------------------------
+
+// 10. health-nudge fire pattern unchanged: each of the 4 PAWPAL-1 nudges
+//     still pushes its expected overlay at normal preset, no notif/sound.
+{
+  const cases = [
+    { id: "pomodoroBreak", expected: ["walkAcross", 3000] },
+    { id: "hydrate",       expected: ["attention",  5000] },
+    { id: "longSit",       expected: ["walkAcross", 3000] },
+    { id: "lateNightYawn", expected: ["yawning",    5000] },
+  ];
+  for (const { id, expected } of cases) {
+    const ctx = makeCtx();
+    const n = initNudges(ctx);
+    n._fireNudgeForTesting(id);
+    assert.deepStrictEqual(ctx._calls.pushBehavior, [expected],
+      `health nudge ${id} should push ${JSON.stringify(expected)}`);
+    assert.strictEqual(ctx._calls.showNativeNotification.length, 0,
+      `health nudge ${id} should NOT fire native notification at normal preset`);
+    assert.strictEqual(ctx._calls.playSound.length, 0,
+      `health nudge ${id} should NOT play sound at normal preset`);
+  }
+}
+
+// 11. health-nudge DND gate unchanged across all 4 health nudges.
+{
+  const ctx = makeCtx({ dnd: true });
+  const n = initNudges(ctx);
+  for (const id of ["pomodoroBreak", "hydrate", "longSit", "lateNightYawn"]) {
+    n._fireNudgeForTesting(id);
+  }
+  assert.strictEqual(ctx._calls.pushBehavior.length, 0,
+    "DND should still block ALL 4 health nudges (invariant #3 preserved post PAWPAL-2)");
+}
+
+// 12. health-nudge preset gate unchanged: quiet still suppresses
+//     hydrate/longSit/lateNightYawn (pomodoroBreak still allowed).
+{
+  const ctx = makeCtx({ prefs: { version: 3, nudges: { preset: "quiet", overrides: {}, lastFiredAt: {} } } });
+  const n = initNudges(ctx);
+  n._fireNudgeForTesting("hydrate");
+  n._fireNudgeForTesting("longSit");
+  n._fireNudgeForTesting("lateNightYawn");
+  assert.strictEqual(ctx._calls.pushBehavior.length, 0,
+    "quiet preset must still suppress hydrate + longSit + lateNightYawn after PAWPAL-2");
+  n._fireNudgeForTesting("pomodoroBreak");
+  assert.strictEqual(ctx._calls.pushBehavior.length, 1,
+    "quiet preset must still allow pomodoroBreak after PAWPAL-2");
+}
+
+// 13. health-nudge type/source schema unchanged.
+//     The 4 PAWPAL-1 nudges keep their pre-PAWPAL-2 `type` values; if
+//     this regresses (e.g., someone retypes pomodoroBreak as "workspace")
+//     PAWPAL-1 scheduling silently breaks.
+{
+  const ctx = makeCtx();
+  const n = initNudges(ctx);
+  assert.strictEqual(n._NUDGE_DEFINITIONS.pomodoroBreak.type, "cron");
+  assert.strictEqual(n._NUDGE_DEFINITIONS.hydrate.type, "cron");
+  assert.strictEqual(n._NUDGE_DEFINITIONS.longSit.type, "detector");
+  assert.strictEqual(n._NUDGE_DEFINITIONS.lateNightYawn.type, "schedule");
+  // None of the health nudges has a `source` field (only workspace nudges do).
+  for (const id of ["pomodoroBreak", "hydrate", "longSit", "lateNightYawn"]) {
+    assert.strictEqual(n._NUDGE_DEFINITIONS[id].source, undefined,
+      `${id} should have NO source field (workspace-only)`);
+  }
+}
+
+// 14. health-nudge lastFiredAt recording unchanged.
+{
+  const ctx = makeCtx();
+  const n = initNudges(ctx);
+  const before = Date.now();
+  n._fireNudgeForTesting("longSit");
+  const after = Date.now();
+  const setPatch = ctx._calls.setPrefs.find((p) => p.nudges && p.nudges.lastFiredAt);
+  assert.ok(setPatch, "longSit should record lastFiredAt");
+  const ts = setPatch.nudges.lastFiredAt.longSit;
+  assert.ok(ts >= before && ts <= after, "longSit lastFiredAt is current ms");
+}
+
 console.log("OK — nudges PAWPAL-1 unit tests pass");

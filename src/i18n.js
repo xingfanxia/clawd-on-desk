@@ -162,6 +162,13 @@ const i18n = {
     nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
     nudgeLateNightTitle: "It's getting late",
     nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
+    // PAWPAL-2 workspace nudges
+    nudgeSocialHeadShakeTitle: "Back to work?",
+    nudgeSocialHeadShakeBody: "You've drifted into a social app — your cat shakes its head.",
+    nudgeStuckOnProblemTitle: "Stuck?",
+    nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
+    nudgeLongWindowBreakTitle: "Same window for a while",
+    nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
   },
   zh: {
     size: "大小",
@@ -315,6 +322,13 @@ const i18n = {
     nudgeLongSitBody: "你坐了好一会儿了。起来走两步吧。",
     nudgeLateNightTitle: "夜深了",
     nudgeLateNightBody: "考虑收尾吧 — 你的猫困了。",
+    // PAWPAL-2 workspace nudges
+    nudgeSocialHeadShakeTitle: "回去干活？",
+    nudgeSocialHeadShakeBody: "你切到社交软件啦 — 你的猫摇了摇头。",
+    nudgeStuckOnProblemTitle: "卡住了？",
+    nudgeStuckOnProblemBody: "你停下打字、CPU 还在跑 — 喘口气，再读一遍题目。",
+    nudgeLongWindowBreakTitle: "同一窗口太久了",
+    nudgeLongWindowBreakBody: "你在这个应用里待了很久 — 切换一下，或者真的休息一下。",
   },
   ko: {
     size: "크기",
@@ -467,6 +481,13 @@ const i18n = {
     nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
     nudgeLateNightTitle: "It's getting late",
     nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
+    // PAWPAL-2 workspace nudges — Korean stub falls back to English.
+    nudgeSocialHeadShakeTitle: "Back to work?",
+    nudgeSocialHeadShakeBody: "You've drifted into a social app — your cat shakes its head.",
+    nudgeStuckOnProblemTitle: "Stuck?",
+    nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
+    nudgeLongWindowBreakTitle: "Same window for a while",
+    nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
   },
   ja: {
     size: "サイズ",
@@ -619,6 +640,13 @@ const i18n = {
     nudgeLongSitBody: "You've been sitting for a while. Stand up and move.",
     nudgeLateNightTitle: "It's getting late",
     nudgeLateNightBody: "Consider wrapping up — your cat is getting sleepy.",
+    // PAWPAL-2 workspace nudges — Japanese stub falls back to English.
+    nudgeSocialHeadShakeTitle: "Back to work?",
+    nudgeSocialHeadShakeBody: "You've drifted into a social app — your cat shakes its head.",
+    nudgeStuckOnProblemTitle: "Stuck?",
+    nudgeStuckOnProblemBody: "Typing's paused and the CPU's working — take a breath, then re-read the problem.",
+    nudgeLongWindowBreakTitle: "Same window for a while",
+    nudgeLongWindowBreakBody: "You've been on this app for a long stretch — switch contexts or take a real break.",
   },
 };
 

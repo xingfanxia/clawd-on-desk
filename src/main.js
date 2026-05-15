@@ -743,15 +743,23 @@ function pushBehavior(behaviorId, durationMs) {
   // else: theme doesn't support this behavior or state at all — silent no-op.
 }
 
-// Currently unused in PAWPAL-1 — overlays expire via the duration timer
-// in renderer.js. Reserved for PAWPAL-2 (focus-mode integration), where
-// entering focus mode will cancel any active nudge overlay immediately
-// rather than waiting for the timer.
-// TODO(PAWPAL-2): wire to focus-mode transitions.
+// Removes an active behavior overlay layer immediately, ahead of its
+// natural duration-timer expiry. Wired in PAWPAL-2 Task 9 to the
+// workspace-detector's focus-enter transitions (non-focus → code/creative)
+// so the user doesn't have to wait for a lingering nudge overlay when they
+// pivot into deep work. Safe to call when no overlay is active — renderer
+// no-ops on unknown behaviorId.
 function popBehavior(behaviorId) {
   if (!behaviorId) return;
   sendToRenderer("pop-behavior", { behaviorId });
 }
+
+// PAWPAL-2 Task 9 — focus-enter overlay-cancel predicate lives in its own
+// module so unit tests don't have to boot main.js (Electron entry point).
+// See src/lib/focus-overlay.js for the rule definition. Used by the
+// workspace-detector onAppChange subscriber wired further down in the
+// `whenReady` block.
+const { shouldCancelFocusOverlays } = require("./lib/focus-overlay");
 
 function setViewportOffsetY(offsetY) {
   const next = Number.isFinite(offsetY) ? Math.max(0, Math.round(offsetY)) : 0;
@@ -1163,6 +1171,19 @@ const _stateCtx = {
       if (_isAgentEnabled(probe, id)) return true;
     }
     return false;
+  },
+  // PAWPAL-2 Task 8: workspace-category bias for idle variant routing.
+  // state.js's applyIdleVariantOnce reads this at poll time (≥60s after init),
+  // so the lazy `_workspaceDetector` binding declared further down in main.js
+  // is fully assigned by the time this reader runs. Mirrors the shape of
+  // _nudgesCtx.getAppCategory. Returns null when:
+  //   - detector hasn't been instantiated yet (early-startup race)
+  //   - detector is gated off (workspaceAwareness.enabled = false)
+  //   - no confirmed active app (initial state, debounce window)
+  // state.js tolerates null and falls back to PAWPAL-1 mood-only routing.
+  getWorkspaceCategory: () => {
+    const current = _workspaceDetector && _workspaceDetector.getCurrentApp();
+    return current ? current.category : null;
   },
 };
 const _state = require("./state")(_stateCtx);
@@ -1580,6 +1601,15 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
 //    and after _state via _stateCtx.soul wiring above. The scheduler reads
 //    prefs/dnd/mouseStillSince at fire time, so the timers themselves never
 //    cache stale state. `start()` is called from app.whenReady() below.
+//
+// `_workspaceDetector`, `_systemMonitor`, and `_longWindowTracker` are
+// forward-declared so `_nudgesCtx` readers can reference them; the actual
+// factories are instantiated alongside the `_osPermission` block further
+// down (factories need `_osPermission`, which itself depends on Electron
+// `app`/`shell`).
+let _workspaceDetector = null;
+let _systemMonitor = null;
+let _longWindowTracker = null;
 const _nudgesCtx = {
   getPrefs: () => _settingsController.getSnapshot(),
   setPrefs: (patch) => {
@@ -1593,6 +1623,59 @@ const _nudgesCtx = {
   showNativeNotification: ({ title, body }) => showNativeNotification({ title, body }),
   playSound: (name) => playSound(name),
   getMouseStillSinceMs: () => (_tick && typeof _tick._mouseStillSince === "number" ? _tick._mouseStillSince : Date.now()),
+  // Workspace-awareness signal source (PAWPAL-2 Task 4). Returns `null` when
+  // the detector isn't running or hasn't confirmed an app yet — callers
+  // must tolerate the null case.
+  getActiveApp: () => (_workspaceDetector ? _workspaceDetector.getCurrentApp() : null),
+  getAppCategory: () => {
+    const current = _workspaceDetector && _workspaceDetector.getCurrentApp();
+    return current ? current.category : null;
+  },
+  // System-monitor signal sources (PAWPAL-2 Task 5). Both return `null` when
+  // the monitor isn't running or the underlying gate is closed (feature
+  // disabled, no Input Monitoring permission, non-macOS for CPU). v1 ships
+  // without a real macOS keystroke source so getTypingRate() is always null
+  // in production — PAWPAL-2.2 will wire a native source. Callers must
+  // tolerate the null case (treat it as "unknown", not "zero").
+  getTypingRate: () => (_systemMonitor ? _systemMonitor.getTypingRate() : null),
+  getCpuPressure: () => (_systemMonitor ? _systemMonitor.getCpuPressure() : null),
+  // Long-window tracker (PAWPAL-2 Task 6). Returns ms since the user
+  // started on the current app, or `null` when the tracker isn't running,
+  // hasn't observed a first onAppChange yet, or the feature is gated off
+  // (workspaceAwareness.enabled / workspaceAwareness.longWindow.enabled
+  // both required). Callers must tolerate null (treat as "unknown", not
+  // "zero"). Task 7 will surface this reader to nudge biasing.
+  getCurrentWindowDurationMs: () =>
+    (_longWindowTracker ? _longWindowTracker.getCurrentWindowDurationMs() : null),
+  // PAWPAL-2 Task 7: workspace-driven nudge subscription.
+  //
+  // Maps each abstract channel name to its detector subscribe method. Returns
+  // the unsubscribe fn from the detector — nudges.js stores these in
+  // workspaceUnsubscribes and calls them from stop().
+  //
+  // Three channels are wired today; unknown channels emit a console warning
+  // (visible to engineers running with --inspect / DevTools) and return a
+  // no-op unsubscribe so the caller can't crash by invoking an undefined
+  // return.
+  //
+  // The detector instances are forward-declared (above this block) and
+  // instantiated later in app.whenReady — but _nudges.start() also runs in
+  // whenReady AFTER those instantiations. The `? : () => {}` fallbacks below
+  // are defense-in-depth against future re-arrangement, not a real race.
+  subscribeWorkspace: (channel, callback) => {
+    switch (channel) {
+      case "workspace.appChange":
+        return _workspaceDetector ? _workspaceDetector.onAppChange(callback) : () => {};
+      case "system.stuckOnProblem":
+        return _systemMonitor ? _systemMonitor.onStuckOnProblem(callback) : () => {};
+      case "longWindow.fire":
+        return _longWindowTracker ? _longWindowTracker.onLongWindow(callback) : () => {};
+      default:
+        // eslint-disable-next-line no-console
+        console.warn(`Clawd: nudges.subscribeWorkspace unknown channel: ${channel}`);
+        return () => {};
+    }
+  },
   // i18n with optional `{name}` substitution (matches existing i18n.js
   // convention — see e.g. `remoteConnected: "Remote: {name}"` consumed via
   // `t(key).replace("{name}", value)` elsewhere). Done here so nudges.js
@@ -3361,6 +3444,212 @@ ipcMain.handle("settings:open-external", async (_event, url) => {
   }
 });
 
+// ── OS-level permission gate (Accessibility / Input Monitoring) ──
+// Workspace-awareness detectors share this single source of truth so they
+// can check permission state synchronously, prompt the user via a
+// deep-link into System Settings, and re-poll on app foreground.
+//
+// IMPORTANT: `os-permission:open-system-settings` deliberately keeps a
+// separate URL whitelist from `settings:open-external` (which is http(s)
+// only). We don't broaden the http(s) handler with `x-apple.systempreferences:`
+// — keep both boundaries tight.
+const {
+  createOsPermission: _createOsPermission,
+  makeElectronForegroundTracker: _makeOsPermissionForegroundTracker,
+  SYSTEM_SETTINGS_URLS: _OS_PERMISSION_URLS,
+} = require("./os-permission");
+const _osPermission = _createOsPermission({
+  shell,
+  foregroundTracker: _makeOsPermissionForegroundTracker(app),
+  onError: (context, err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`[os-permission] ${context}:`, (err && err.message) || err);
+  },
+});
+ipcMain.handle("os-permission:check", async (_event, kind) => {
+  if (typeof kind !== "string") {
+    return { status: "error", message: "Invalid kind" };
+  }
+  try {
+    const state = await _osPermission.refresh(kind);
+    return { status: "ok", state };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+ipcMain.handle("os-permission:prompt", async (_event, kind) => {
+  if (typeof kind !== "string") {
+    return { status: "error", message: "Invalid kind" };
+  }
+  try {
+    const state = await _osPermission.promptGrant(kind);
+    return { status: "ok", state };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+ipcMain.handle("os-permission:open-system-settings", async (_event, kind) => {
+  // Whitelist validation — only the two known kinds, mapped to known URLs.
+  if (typeof kind !== "string" || !Object.prototype.hasOwnProperty.call(_OS_PERMISSION_URLS, kind)) {
+    return { status: "error", message: "Invalid kind" };
+  }
+  const url = _OS_PERMISSION_URLS[kind];
+  // Belt-and-braces URL prefix check — the whitelist already enforces this,
+  // but if a future maintainer broadens the map we still won't leak through
+  // a non-System-Settings URL to shell.openExternal.
+  if (!/^x-apple\.systempreferences:com\.apple\.preference\.security/.test(url)) {
+    return { status: "error", message: "Invalid URL" };
+  }
+  try {
+    await shell.openExternal(url);
+    return { status: "ok" };
+  } catch (err) {
+    return { status: "error", message: (err && err.message) || String(err) };
+  }
+});
+
+// ── Workspace-awareness detector (PAWPAL-2 Task 4) ──
+// Polls the frontmost macOS app every DEFAULT_POLL_INTERVAL_MS (5000ms
+// today), debounces app changes (Cmd+Tab spam → at most one fire per
+// DEFAULT_DEBOUNCE_WINDOW_MS of stability), and routes app name →
+// workspace category via `prefs.workspaceAwareness.activeApp.categoryRules`.
+// Pure signal source — does NOT trigger any behaviors / nudges / state
+// changes here; later PAWPAL-2 tasks (7, 8) consume `getActiveApp()` /
+// `getAppCategory()` via `_nudgesCtx` and `_stateCtx`.
+//
+// Gates (silent no-op when any fails):
+//   1. `_osPermission.isGranted("accessibility") === "granted"`
+//   2. `prefs.workspaceAwareness.enabled`
+//   3. `prefs.workspaceAwareness.activeApp.enabled`
+// The detector re-checks all three on every tick, so a user grant /
+// pref-toggle resumes detection on the next tick without a restart.
+//
+// `start()` runs from app.whenReady() below (alongside `_nudges.start()`);
+// `stop()` runs from before-quit cleanup. `reload()` fires on
+// workspaceAwareness pref changes to invalidate the rules sort cache and
+// reset any in-flight debounce candidate.
+{
+  const _initWorkspaceDetector = require("./workspace-detector");
+  const { captureFrontApp: _captureFrontApp } = require("./lib/front-app");
+  _workspaceDetector = _initWorkspaceDetector({
+    getPrefs: () => _settingsController.getSnapshot(),
+    osPermission: _osPermission,
+    captureFrontApp: _captureFrontApp,
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[workspace-detector] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
+
+// PAWPAL-2 Task 9 — focus-enter overlay cancel.
+//
+// Subscribe to the workspace-detector's confirmed app changes and pop any
+// active nudge overlay layer ("walkAcross" / "attention") the moment the
+// user transitions INTO a focus app (code / creative). Without this, the
+// user has to wait out the overlay's duration timer when they pivot into
+// deep work — feels like the pet is fighting them.
+//
+// Why a fresh subscription (vs folding into long-window-tracker's): keeps
+// the orthogonality invariant. long-window-tracker reads onAppChange to
+// emit a nudge (a behavior-producer). This subscriber reads onAppChange to
+// CANCEL a behavior (a behavior-consumer). Mixing the two would couple
+// long-window-tracker's lifecycle to overlay-cancel concerns it has no
+// reason to know about.
+//
+// `popBehavior` is safe on no-active-overlay (renderer no-ops on unknown
+// behaviorId), and the subscription is silent when the detector itself
+// isn't running (prefs/permission gates closed → no onAppChange fires).
+{
+  let _lastWorkspaceCategory = null;
+  _workspaceDetector.onAppChange((appInfo) => {
+    try {
+      const newCategory = appInfo && appInfo.category;
+      if (shouldCancelFocusOverlays(_lastWorkspaceCategory, newCategory)) {
+        popBehavior("walkAcross");
+        // popBehavior("attention") DELIBERATELY dismisses an in-flight
+        // hydrate / longSit reminder on focus-enter. The two PAWPAL-1
+        // health nudges that ride the "attention" overlay (`hydrate` and
+        // `longSit`) will refire on their own schedules (90 min and 30 min
+        // respectively at the normal preset), so the user is not denied
+        // the reminder — it just doesn't visually interrupt the moment
+        // they pivot into deep work. If we ever route a non-recurring
+        // nudge through "attention", revisit this so we don't silently
+        // eat it.
+        popBehavior("attention");
+      }
+      _lastWorkspaceCategory = newCategory;
+    } catch (err) {
+      console.warn(
+        "Clawd: workspace focus-enter overlay-cancel failed:",
+        err && err.message
+      );
+    }
+  });
+}
+
+// ── System monitor (PAWPAL-2 Task 5) ──
+// Samples CPU pressure via `top -l 1 -n 0` every 30s and computes typing
+// rate over a rolling 60s window when a keystroke source is wired. Emits
+// onStuckOnProblem when BOTH typing has paused >= 30s AND CPU has been
+// >= 70% for >= 2 min, with a 15-min cooldown between fires. Pure signal
+// source — does NOT trigger any behaviors / nudges / state changes here;
+// Task 7 wires onStuckOnProblem into the nudge biasing layer.
+//
+// v1 keystroke-source caveat: real global keystroke observation on macOS
+// requires CGEventTap behind the Input Monitoring TCC gate, which needs
+// native code we deliberately don't ship in v1. No keystrokeSource is
+// passed below → getTypingRate() returns null in production and the
+// stuck-on-problem evaluator silently no-ops (typing signal is "unknown",
+// can't compare unknown to threshold). PAWPAL-2.2 will inject a native
+// source here; the state machine + CPU probe already work end-to-end.
+//
+// Gates (silent no-op when any fails):
+//   1. `prefs.workspaceAwareness.enabled`
+//   2. `prefs.workspaceAwareness.systemMonitor.enabled`
+//   3. CPU probe requires macOS (no permission needed); typing requires
+//      `_osPermission.isGranted("inputMonitoring") === "granted"`.
+{
+  const _initSystemMonitor = require("./system-monitor");
+  _systemMonitor = _initSystemMonitor({
+    getPrefs: () => _settingsController.getSnapshot(),
+    osPermission: _osPermission,
+    // No keystrokeSource — v1 leaves getTypingRate() as null. PAWPAL-2.2
+    // will inject a native source here.
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[system-monitor] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
+
+// ── Long-window tracker (PAWPAL-2 Task 6) ──
+// See src/long-window-tracker.js header for design rationale (Date.now-
+// based comparison vs setTimeout, gate stack, fatigue-history-survives-
+// stop, why this is separated from workspace-detector).
+//
+// Wiring-specific note: the tracker subscribes to `_workspaceDetector`'s
+// onAppChange, so this instantiation must come AFTER _workspaceDetector
+// above. `start()` in whenReady() below similarly chains after the
+// detector's start() so the first onAppChange confirmation can flow
+// through.
+{
+  const _initLongWindowTracker = require("./long-window-tracker");
+  _longWindowTracker = _initLongWindowTracker({
+    getPrefs: () => _settingsController.getSnapshot(),
+    workspaceDetector: _workspaceDetector,
+    log: (level, msg, err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[long-window-tracker] ${msg}`, (err && err.message) || err || "");
+    },
+  });
+}
+_settingsController.subscribeKey("workspaceAwareness", () => {
+  if (_workspaceDetector) _workspaceDetector.reload();
+  if (_systemMonitor) _systemMonitor.reload();
+  if (_longWindowTracker) _longWindowTracker.reload();
+});
+
 // ── Doctor tab IPC ──
 const { registerDoctorIpc } = require("./doctor-ipc");
 registerDoctorIpc({
@@ -4676,6 +4965,35 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: startIdleVariantPoll() failed:", err && err.message);
     }
+    // PAWPAL-2 Task 4: workspace-awareness detector. start() is idempotent
+    // and silent-no-ops internally when prefs/permission gates are off, so
+    // it's safe to always start here — the user never sees CPU cost until
+    // they opt in via Settings + grant Accessibility.
+    try {
+      if (_workspaceDetector) _workspaceDetector.start();
+    } catch (err) {
+      console.warn("Clawd: workspaceDetector.start() failed:", err && err.message);
+    }
+    // PAWPAL-2 Task 5: system monitor (typing rate + CPU pressure). Same
+    // idempotent + internal-gate pattern as workspace-detector — safe to
+    // call unconditionally; no subprocess spawn or keystroke subscription
+    // happens until the user opts in via Settings and (for typing) grants
+    // Input Monitoring.
+    try {
+      if (_systemMonitor) _systemMonitor.start();
+    } catch (err) {
+      console.warn("Clawd: systemMonitor.start() failed:", err && err.message);
+    }
+    // PAWPAL-2 Task 6: long-window tracker. Subscribes to workspace-detector
+    // events — must start AFTER _workspaceDetector.start() above so the
+    // first onAppChange confirmation can be observed. Same idempotent +
+    // internal-gate pattern (silent no-op when feature disabled); no work
+    // happens beyond a 60s tick until the user opts in via Settings.
+    try {
+      if (_longWindowTracker) _longWindowTracker.start();
+    } catch (err) {
+      console.warn("Clawd: longWindowTracker.start() failed:", err && err.message);
+    }
 
     // ── Soul engine — AI brain for screen observation + chat + diary ──
     // Gated by simpleMode: in pure-pet mode the soul never boots, no observation
@@ -4743,6 +5061,22 @@ if (!gotTheLock) {
     // PAWPAL-1: clear nudge timers before _state.cleanup() — nudges depend on
     // _state for pushBehavior + DND read-through, so stop them first.
     if (_nudges && typeof _nudges.stop === "function") _nudges.stop();
+    // PAWPAL-2 Task 6: stop the long-window tracker BEFORE the workspace-
+    // detector. The tracker subscribes to the detector's onAppChange — stop
+    // the subscriber first so the detector doesn't dispatch into a torn-down
+    // listener. (Defensive: stop() is idempotent and both detectors tolerate
+    // out-of-order teardown, but ordering subscriber-before-source is the
+    // principled shutdown path.)
+    if (_longWindowTracker && typeof _longWindowTracker.stop === "function") _longWindowTracker.stop();
+    // PAWPAL-2 Task 4: stop the workspace-detector interval before quit so
+    // we don't leak a pending poll tick (DEFAULT_POLL_INTERVAL_MS) into
+    // shutdown. Detector is a pure signal source, so stop ordering vs
+    // _state/_nudges doesn't matter — anywhere before the loop tears down
+    // is fine.
+    if (_workspaceDetector && typeof _workspaceDetector.stop === "function") _workspaceDetector.stop();
+    // PAWPAL-2 Task 5: stop the system-monitor (CPU poll + typing tick).
+    // Same pure-signal-source rationale; teardown ordering is flexible.
+    if (_systemMonitor && typeof _systemMonitor.stop === "function") _systemMonitor.stop();
     if (_state && typeof _state.stopIdleVariantPoll === "function") _state.stopIdleVariantPoll();
     _state.cleanup();
     _tick.cleanup();

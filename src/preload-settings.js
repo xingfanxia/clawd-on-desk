@@ -69,6 +69,15 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   listThemes: () => ipcRenderer.invoke("settings:list-themes"),
   confirmRemoveTheme: (themeId) =>
     ipcRenderer.invoke("settings:confirm-remove-theme", themeId),
+  // PAWPAL-2 — OS-level permission gate, mirrored from preload.js so the
+  // Settings UI (which only has access to settingsAPI) can check/prompt
+  // Accessibility + Input Monitoring without bouncing through the pet
+  // window's electronAPI bridge.
+  osPermission: {
+    check: (kind) => ipcRenderer.invoke("os-permission:check", kind),
+    prompt: (kind) => ipcRenderer.invoke("os-permission:prompt", kind),
+    openSystemSettings: (kind) => ipcRenderer.invoke("os-permission:open-system-settings", kind),
+  },
   onChanged: (cb) => {
     if (typeof cb === "function") listeners.add(cb);
   },
