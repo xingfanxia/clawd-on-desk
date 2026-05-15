@@ -251,6 +251,31 @@ describe("settings-tab-awareness (Workspace Awareness — PAWPAL-2 Task 10)", ()
       );
     });
 
+    it("defaultCategoryRules() matches prefs.defaultActiveAppCategoryRules (defensive against drift)", () => {
+      // Both modules ship the same seed map for the active-app substring →
+      // category rules. They CAN'T share a module today (main vs renderer
+      // realms), so parity has to be enforced by test. PAWPAL-2.1's rule-
+      // engine pass should remove this duplication by letting the renderer
+      // read defaults from prefs via IPC.
+      const h = loadAwarenessTabModule();
+      const rendererRules = h.defaultCategoryRules();
+      const prefsRules = prefs.getDefaults().workspaceAwareness.activeApp.categoryRules;
+      const rendererKeys = Object.keys(rendererRules).sort();
+      const prefsKeys = Object.keys(prefsRules).sort();
+      assert.deepStrictEqual(
+        rendererKeys,
+        prefsKeys,
+        "defaultCategoryRules keys diverged from prefs.defaultActiveAppCategoryRules"
+      );
+      for (const k of rendererKeys) {
+        assert.strictEqual(
+          rendererRules[k],
+          prefsRules[k],
+          `defaultCategoryRules[${k}] value diverged: renderer="${rendererRules[k]}" prefs="${prefsRules[k]}"`
+        );
+      }
+    });
+
     it("LONG_WINDOW_THRESHOLDS includes the prefs.js default sameWindowThresholdMs", () => {
       const h = loadAwarenessTabModule();
       // Pull the prefs default through the exported getDefaults() helper

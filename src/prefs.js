@@ -62,6 +62,10 @@ const WORKSPACE_CATEGORIES = ["code", "docs", "social", "chat", "video", "creati
 // case-sensitive substrings to match against frontmost-app name / browser
 // tab title; values are categories from WORKSPACE_CATEGORIES. Users can
 // extend / override this map via the Settings UI.
+// NOTE: this map is duplicated in src/settings-tab-awareness.js#defaultCategoryRules.
+// Keep the two in sync until PAWPAL-2.1 ships the proper rule-engine + UI
+// surface (regex + tab-title patterns) and the renderer can pull from prefs
+// directly. test/prefs-pawpal2.test.js asserts both copies match.
 function defaultActiveAppCategoryRules() {
   return {
     "Code": "code",
@@ -73,6 +77,17 @@ function defaultActiveAppCategoryRules() {
     "Slack": "chat",
     "Discord": "chat",
     "Messages": "chat",
+    // Social. Without seed entries the socialHeadShake nudge would never
+    // fire out of the box (category="social" rules would be empty). These
+    // cover the apps most likely to be the "doom scroll" pattern; users can
+    // add browser-tab-title patterns via Settings → Awareness once the
+    // PAWPAL-2.1 rule engine lands.
+    "Twitter": "social",
+    "X": "social",
+    "Reddit": "social",
+    "Instagram": "social",
+    "TikTok": "social",
+    "Facebook": "social",
     "YouTube": "video",
     "Netflix": "video",
     "Figma": "creative",

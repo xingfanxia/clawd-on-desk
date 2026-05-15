@@ -74,6 +74,12 @@
 
   // Default category rules (mirrors defaultActiveAppCategoryRules in prefs.js).
   // Used to seed an empty editor + Reset-to-defaults button.
+  //
+  // KEEP IN SYNC with src/prefs.js#defaultActiveAppCategoryRules — main and
+  // renderer processes can't share modules, so the table is duplicated.
+  // test/prefs-pawpal2.test.js + test/settings-tab-awareness-workspace.test.js
+  // both assert these match. PAWPAL-2.1's rule-engine pass should collapse
+  // these by letting the renderer pull defaults from prefs via IPC.
   function defaultCategoryRules() {
     return {
       "Code": "code",
@@ -85,6 +91,12 @@
       "Slack": "chat",
       "Discord": "chat",
       "Messages": "chat",
+      "Twitter": "social",
+      "X": "social",
+      "Reddit": "social",
+      "Instagram": "social",
+      "TikTok": "social",
+      "Facebook": "social",
       "YouTube": "video",
       "Netflix": "video",
       "Figma": "creative",
@@ -101,6 +113,16 @@
   let permissionState = {
     accessibility: "unknown",
     inputMonitoring: "unknown",
+  };
+  // Per-kind in-flight flag for the prompt() IPC. `os-permission:prompt` opens
+  // System Settings then waits up to PROMPT_REPOLL_DELAY_MS (~30s) for a
+  // foreground signal before re-probing — without surfacing that wait in the
+  // UI, the "Grant access" button just appears unresponsive. The render code
+  // reads this to show a disabled "Waiting…" spinner state until the IPC
+  // resolves (state flips back via permissionState[kind] = res.state).
+  let isPromptingPermission = {
+    accessibility: false,
+    inputMonitoring: false,
   };
   // Last-known granted state per kind, used to disambiguate "denied" (never
   // granted) from "revoked" (was granted, then revoked in System Settings).
@@ -298,6 +320,15 @@
 
   async function promptPermission(kind) {
     if (!window.settingsAPI || !window.settingsAPI.osPermission) return;
+    // Guard re-entry — repeated clicks on a button that's already opened
+    // System Settings would queue duplicate prompt() calls and produce
+    // confusing repoll cascades. The render-side disabled state mirrors
+    // this guard so the user sees the disabled button while it's truthy.
+    if (isPromptingPermission[kind]) return;
+    isPromptingPermission[kind] = true;
+    if (state.activeTab === "awareness" && core && core.ops) {
+      core.ops.requestRender({ content: true });
+    }
     try {
       const res = await window.settingsAPI.osPermission.prompt(kind);
       if (res && res.status === "ok" && typeof res.state === "string") {
@@ -306,12 +337,14 @@
           wasGranted[kind] = true;
           saveWasGranted();
         }
-        if (state.activeTab === "awareness" && core && core.ops) {
-          core.ops.requestRender({ content: true });
-        }
       }
     } catch (err) {
       console.warn("[awareness] permission prompt failed:", (err && err.message) || err);
+    } finally {
+      isPromptingPermission[kind] = false;
+      if (state.activeTab === "awareness" && core && core.ops) {
+        core.ops.requestRender({ content: true });
+      }
     }
   }
 
@@ -520,17 +553,29 @@
 
     if (isMac() && liveState !== "granted" && liveState !== "unavailable") {
       const isRevoked = liveState === "denied" && wasGranted[kind];
+      const inFlight = !!isPromptingPermission[kind];
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "soft-btn accent";
-      btn.textContent = isRevoked ? t("btnOpenSystemSettings") : t("btnGrantAccess");
-      btn.addEventListener("click", () => {
-        if (isRevoked) {
-          openSystemSettings(kind);
-        } else {
-          promptPermission(kind);
-        }
-      });
+      // Three states: idle "Grant access" / idle "Open System Settings"
+      // (revoked) / in-flight "Waiting for grant…". The prompt IPC can block
+      // up to PROMPT_REPOLL_DELAY_MS (~30s) waiting for the user to flip the
+      // toggle and refocus the app — without this state the button just
+      // appears dead. aria-busy lets AT signal the in-flight nature.
+      if (inFlight) {
+        btn.textContent = t("btnGrantAccessWaiting");
+        btn.disabled = true;
+        btn.setAttribute("aria-busy", "true");
+      } else {
+        btn.textContent = isRevoked ? t("btnOpenSystemSettings") : t("btnGrantAccess");
+        btn.addEventListener("click", () => {
+          if (isRevoked) {
+            openSystemSettings(kind);
+          } else {
+            promptPermission(kind);
+          }
+        });
+      }
       control.appendChild(btn);
     }
     row.appendChild(control);
