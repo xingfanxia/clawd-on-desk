@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.10.0 — 2026-05-15 (PAWPAL-4)
+
+**New: Personality per pet.** Each theme ships a `personality` block in
+`theme.json` that tunes how often nudges fire. Munchkin pushes you into
+focus mode harder; Ragdoll is more attentive to hydration / sleep /
+break. Users can override individual modifiers per theme via prefs.
+
+### Added
+
+- **`personality` block in all 5 built-in `theme.json`** — `label`,
+  `labelKey`, and `modifiers` map (nudgeId → weight). Five distinct
+  personalities ship out of the box:
+  - **clawd** — Balanced (all 1.0; no modification)
+  - **calico** — Playful (socialHeadShake 1.3x; minor hydration tweak)
+  - **cloudling** — Dreamy (lateNightYawn 1.5x; longSit 0.7x)
+  - **munchkin** — Work-energizer (pomodoro 1.5x, hydrate 0.7x)
+  - **ragdoll** — Wellness-keeper (hydrate 1.5x, longSit 1.5x, lateNight 1.5x)
+- **`effectiveWeight(nudgeId)` in `nudges.js`** — computes the
+  multiplier that divides the schedule interval. Weight > 1 → more
+  frequent; weight < 1 → less frequent. Clamped to [0.1, 5.0].
+- **`getActiveThemePersonality()` in `_nudgesCtx`** — surfaces the
+  active theme's personality block to the scheduler.
+- **`prefs.activeThemePersonalityOverrides`** — per-theme weight
+  overrides keyed by `themeId`. v1 ships JSON-file-edit path; visual
+  editor lands in PAWPAL-4.1.
+- **5 personality labels** across en/zh/ko/ja (Korean + Japanese
+  inherit English per PAWPAL-1 convention).
+
+### Changed
+
+- **Prefs schema** v5 → v6 — adds `activeThemePersonalityOverrides`
+  (default `{}`). Existing v5 users auto-migrate.
+- **`startCronNudge`** divides interval by `effectiveWeight(nudgeId)`.
+  Munchkin's pomodoro fires every ~17 min (25 / 1.5) at normal preset.
+- **`longSit` detector** — same weight applied to threshold AND
+  recently-fired guard so the spacing stays self-consistent.
+
+### Honored
+
+- **All 3 PAWPAL-1 invariants preserved**: personality is a scheduling
+  modifier only; behavior overlays still compose over state; Soul ↔
+  Nudge orthogonality untouched (mood routing in `state.js` ignores
+  personality); DND + preset + per-nudge override gates apply before
+  personality enters the picture.
+- **Backward-compatible**: missing `personality` block or missing
+  `getActiveThemePersonality` accessor → silent weight=1.0 for all
+  nudges. PAWPAL-1/2/3 tests continue to pass unmodified.
+
+### Out of scope (deferred to PAWPAL-4.1)
+
+- **Settings UI editor** — visual per-nudge slider per active theme. v1
+  ships JSON-file-edit path: users open prefs.json and add entries to
+  `activeThemePersonalityOverrides`. PAWPAL-4.1 adds the visual editor.
+- **Cross-pet rotation** — single active pet only.
+- **Soul-driven personality drift** — personality is static config.
+
+### Stats
+
+- 5 theme.json files updated
+- 2 new test files (prefs-pawpal4 + nudges-pawpal4) = +13 tests
+- ~250 LOC added (mostly schema + helpers; minimal main.js wiring)
+
+---
+
 ## v0.9.0 — 2026-05-15 (PAWPAL-3)
 
 **New: External integrations (macOS-native subset).** Three new opt-in

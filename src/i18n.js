@@ -176,6 +176,12 @@ const i18n = {
     nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
     nudgeScreenLockedTitle: "Sleeping",
     nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
+    // PAWPAL-4 personality labels
+    personalityBalanced: "Balanced",
+    personalityPlayful: "Playful",
+    personalityDreamy: "Dreamy",
+    personalityWorkEnergizer: "Work-energizer",
+    personalityWellnessKeeper: "Wellness-keeper",
   },
   zh: {
     size: "大小",
@@ -343,6 +349,12 @@ const i18n = {
     nudgeBatteryLowBody: "你的猫抱着电池图标 — 该插电啦。",
     nudgeScreenLockedTitle: "睡着了",
     nudgeScreenLockedBody: "屏幕锁定 — 你的猫在打盹，等你回来。",
+    // PAWPAL-4 性格标签
+    personalityBalanced: "均衡",
+    personalityPlayful: "活泼",
+    personalityDreamy: "梦幻",
+    personalityWorkEnergizer: "工作打鸡血",
+    personalityWellnessKeeper: "健康守护",
   },
   ko: {
     size: "크기",
@@ -509,6 +521,12 @@ const i18n = {
     nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
     nudgeScreenLockedTitle: "Sleeping",
     nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
+    // PAWPAL-4 personality labels (English fallback)
+    personalityBalanced: "Balanced",
+    personalityPlayful: "Playful",
+    personalityDreamy: "Dreamy",
+    personalityWorkEnergizer: "Work-energizer",
+    personalityWellnessKeeper: "Wellness-keeper",
   },
   ja: {
     size: "サイズ",
@@ -675,6 +693,12 @@ const i18n = {
     nudgeBatteryLowBody: "Your cat is carrying the battery icon — plug in soon.",
     nudgeScreenLockedTitle: "Sleeping",
     nudgeScreenLockedBody: "Screen is locked — your cat naps until you're back.",
+    // PAWPAL-4 personality labels (English fallback)
+    personalityBalanced: "Balanced",
+    personalityPlayful: "Playful",
+    personalityDreamy: "Dreamy",
+    personalityWorkEnergizer: "Work-energizer",
+    personalityWellnessKeeper: "Wellness-keeper",
   },
 };
 

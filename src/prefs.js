@@ -28,7 +28,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 5;
+const CURRENT_VERSION = 6;
 
 // Shared prototype-pollution defense for user-controllable maps. Returns a
 // shallow copy of `raw` with `__proto__` / `constructor` / `prototype` keys
@@ -145,6 +145,21 @@ function defaultIntegrations() {
       screenLock: false,
     },
   };
+}
+
+// PAWPAL-4: per-theme personality weight overrides. Theme.json ships a
+// default personality block (label + modifiers[nudgeId] = weight) and this
+// prefs field lets the user override individual modifiers per theme.
+//
+// Structure: { [themeId]: { [nudgeId]: weight } }
+//   - Empty {} → use theme.json defaults for every theme
+//   - Theme listed but nudgeId missing → use theme.json default for that nudge
+//   - Theme listed with nudgeId → use the override weight (clamped to [0.1, 5.0])
+//
+// Weight semantics: 1.0 = unchanged; >1 = more frequent; <1 = less frequent.
+// nudges.js#effectiveWeight() reads theme.json first, then this override.
+function defaultActiveThemePersonalityOverrides() {
+  return {};
 }
 
 // ── Schema ──
@@ -310,6 +325,14 @@ const SCHEMA = {
     defaultFactory: defaultWorkspaceAwareness,
     normalize: normalizeWorkspaceAwareness,
   },
+  // PAWPAL-4: per-theme personality weight overrides. Defaults to {} — every
+  // theme falls back to its theme.json `personality` block. Users can edit
+  // per-nudge weights for the active theme via Settings → Personality.
+  activeThemePersonalityOverrides: {
+    type: "object",
+    defaultFactory: defaultActiveThemePersonalityOverrides,
+    normalize: normalizeActiveThemePersonalityOverrides,
+  },
   // PAWPAL-3: external integrations (music / battery / system events). Same
   // opt-in-by-default structure as workspaceAwareness — master toggle plus
   // per-source sub-blocks, all off until the user enables them in Settings.
@@ -466,6 +489,16 @@ function migrate(raw) {
       out.integrations = defaultIntegrations();
     }
     out.version = 5;
+  }
+  // v5 → v6: backfill `activeThemePersonalityOverrides` (PAWPAL-4). Empty
+  // map by default — every theme falls back to its theme.json personality
+  // block. The settings UI populates this map as the user customizes
+  // per-nudge weights per pet.
+  if ((typeof out.version !== "number" ? 0 : out.version) < 6) {
+    if (out.activeThemePersonalityOverrides === undefined) {
+      out.activeThemePersonalityOverrides = defaultActiveThemePersonalityOverrides();
+    }
+    out.version = 6;
   }
   // Future migrations slot in here as `if (out.version < N) { ... out.version = N }`.
   return out;
@@ -901,6 +934,49 @@ function normalizeIntegrations(value, defaultsValue) {
   };
 }
 
+// PAWPAL-4: normalizes the user's per-theme personality weight overrides.
+//
+// Structure (raw input): { [themeId]: { [nudgeId]: weight } }
+//
+// Defensive coercion:
+//   - Strip prototype-pollution sentinels at root and per-theme map.
+//   - themeId must be a non-empty string (any string is fine — themes can
+//     be user-installed, so we don't whitelist against known theme ids;
+//     orphan theme overrides survive a theme uninstall safely).
+//   - nudgeId must be a non-empty string. Same reason — new nudges can ship
+//     in any future PAWPAL wave without invalidating older prefs.
+//   - weight must be finite and in [0.1, 5.0]. Out-of-range values are
+//     SILENTLY DROPPED rather than clamped, so a malformed file can be
+//     recovered to defaults instead of carrying surprise multipliers.
+const PERSONALITY_WEIGHT_MIN = 0.1;
+const PERSONALITY_WEIGHT_MAX = 5.0;
+function normalizeActiveThemePersonalityOverrides(value, defaultsValue) {
+  void defaultsValue;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultActiveThemePersonalityOverrides();
+  }
+  const safeRoot = stripPrototypePollutionKeys(value);
+  const out = {};
+  for (const themeId of Object.keys(safeRoot)) {
+    if (typeof themeId !== "string" || !themeId) continue;
+    const raw = safeRoot[themeId];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const safeInner = stripPrototypePollutionKeys(raw);
+    const themeOut = {};
+    for (const nudgeId of Object.keys(safeInner)) {
+      if (typeof nudgeId !== "string" || !nudgeId) continue;
+      const weight = Number(safeInner[nudgeId]);
+      if (!Number.isFinite(weight)) continue;
+      if (weight < PERSONALITY_WEIGHT_MIN || weight > PERSONALITY_WEIGHT_MAX) continue;
+      themeOut[nudgeId] = weight;
+    }
+    if (Object.keys(themeOut).length > 0) {
+      out[themeId] = themeOut;
+    }
+  }
+  return out;
+}
+
 function normalizeThemeVariant(value, defaultsValue) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return defaultsValue;
   const out = {};
@@ -984,6 +1060,8 @@ module.exports = {
   AGENT_FLAGS,
   CODEX_PERMISSION_MODES,
   WORKSPACE_CATEGORIES,
+  PERSONALITY_WEIGHT_MIN,
+  PERSONALITY_WEIGHT_MAX,
   getDefaults,
   validate,
   migrate,
