@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Project scale and verification
+
+**Profile: personal desktop companion.** Electron pet and coding-agent hooks. Visual changes usually need a desktop check. Hook permission decisions, local HTTP exposure, installers and user settings require focused tests; preserve native permission fallback and existing hooks. Validate only affected platforms unless shared behavior or a release needs more.
+
+- The requested behavior/questions define completion. Reviews are read-only unless fixes are requested; report unrelated findings briefly without adding tasks or test backfill.
+- Use the smallest existing check that proves the change. Add tests for a concrete regression or consequential boundary; do not impose blanket TDD, new coverage targets, full suites, plans or reviewers. Preserve configured CI and actual release gates; reuse still-valid results.
+- Keep the existing structure. Internal contract errors should be clear; add retries, fallbacks or compatibility layers only for an observed external failure or supported contract. Keep secrets private and inspect security only at boundaries changed by this task.
+
 This file is the entry point for coding agents working in this repository. Keep it short and operational. Deep background lives in `docs/project/`.
 
 ## Project Overview
